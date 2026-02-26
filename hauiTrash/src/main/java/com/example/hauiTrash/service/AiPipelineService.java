@@ -1,0 +1,8 @@
+package com.example.hauiTrash.service;
+
+import com.example.hauiTrash.dto.AiResponseDetailsDTO;
+
+public interface AiPipelineService {
+    AiResponseDetailsDTO predictAndEnrich(Integer requestId);
+    AiResponseDetailsDTO getDetail(Integer requestId);
+}

@@ -3,30 +3,19 @@ package com.example.hauiTrash.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.util.HashSet;
-import java.util.Set;
-
 @Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
-@Builder
+@NoArgsConstructor @AllArgsConstructor @Builder
 @Entity
 @Table(name = "trash_types")
 public class TrashType {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @Column(name="id")
+    private Integer id;
 
-    @Column(name = "code", length = 50, unique = true)
+    @Column(nullable = false, unique = true, length = 50)
     private String code;
 
-    @Column(name = "name", length = 120)
+    @Column(nullable = false, length = 100)
     private String name;
-
-    @Lob
-    @Column(name = "description")
-    private String description;
-
-    @OneToMany(mappedBy = "trashType", cascade = CascadeType.ALL, orphanRemoval = true)
-    private Set<TrashTypeBinMapping> binMappings = new HashSet<>();
 }

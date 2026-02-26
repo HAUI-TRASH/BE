@@ -28,7 +28,6 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 
         http
-                // REST API -> tắt csrf + session
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -51,24 +50,25 @@ public class SecurityConfig {
                         })
                 )
 
-                // Authorization
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // public endpoints
+                        // ---------- PUBLIC ----------
                         .requestMatchers("/api/v1/auth/register").permitAll()
                         .requestMatchers("/api/v1/auth/login/user").permitAll()
                         .requestMatchers("/api/v1/auth/login/admin").permitAll()
                         .requestMatchers("/api/v1/auth/logout").permitAll()
 
-                        // role-based endpoints
-                        .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "EDITOR")
-                        .requestMatchers("/api/v1/user/**").hasRole("USER")
+                        // ---------- USER ----------
+                        .requestMatchers(HttpMethod.GET, "/api/v1/user/me").authenticated()
 
-                        .anyRequest().authenticated()
+                        // ---------- ADMIN (BẮT BUỘC LOGIN) ----------
+                        .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "EDITOR")
+
+                        // ---------- ALL OTHER ----------
+                        .anyRequest().permitAll()
                 )
 
-                // JWT filter
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -77,8 +77,6 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-
-        // Nếu FE chạy local + domain khác nhau
         config.setAllowedOriginPatterns(List.of("*"));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));

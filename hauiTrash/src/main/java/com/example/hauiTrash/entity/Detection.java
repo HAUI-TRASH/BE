@@ -14,6 +14,7 @@ import java.util.UUID;
 public class Detection {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id", length = 36, nullable = false)
     private Integer id;
 
@@ -23,19 +24,11 @@ public class Detection {
 
     @Column(name = "label", length = 100)
     private String label;
-
-    @Column(name = "confidence")
+    @Column(name = "labelDisplay", length = 100)
+    private String labelDisplay;    @Column(name = "confidence")
     private Float confidence;
 
-    @Column(name = "x_min")
-    private Float xMin;
+    @Column(name = "annotatedUrl")
+    private String annotatedUrl;
 
-    @Column(name = "y_min")
-    private Float yMin;
-
-    @Column(name = "x_max")
-    private Float xMax;
-
-    @Column(name = "y_max")
-    private Float yMax;
 }

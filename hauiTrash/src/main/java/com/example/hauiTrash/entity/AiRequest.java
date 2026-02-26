@@ -18,7 +18,8 @@ import java.util.UUID;
 public class AiRequest {
 
     @Id
-    @Column(name = "id", length = 36, nullable = false)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id", nullable = false)
     private Integer id;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -28,26 +29,6 @@ public class AiRequest {
     @Lob
     @Column(name = "cloudinary_url")
     private String cloudinaryUrl;
-
-    @Column(name = "original_name", length = 255)
-    private String originalName;
-
-    @Column(name = "status", length = 20)
-    private String status; // PROCESSING|DONE|ERROR...
-
-    @Column(name = "model_yolo", length = 50)
-    private String modelYolo;
-
-    @Column(name = "model_cls", length = 50)
-    private String modelCls;
-
-    @Lob
-    @Column(name = "error_message")
-    private String errorMessage;
-
-    @Column(name = "started_at")
-    private Instant startedAt;
-
     @Column(name = "finished_at")
     private Instant finishedAt;
 
