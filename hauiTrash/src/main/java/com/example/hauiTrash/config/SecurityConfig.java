@@ -59,14 +59,14 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/login/admin").permitAll()
                         .requestMatchers("/api/v1/auth/logout").permitAll()
 
-                        // ---------- USER ----------
-                        .requestMatchers(HttpMethod.GET, "/api/v1/user/me").authenticated()
-
-                        // ---------- ADMIN (BẮT BUỘC LOGIN) ----------
+                        // ---------- ADMIN ----------
                         .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "EDITOR")
 
+                        // ---------- USER (BẮT BUỘC LOGIN) ----------
+                        .requestMatchers("/api/v1/user/**").authenticated()
+
                         // ---------- ALL OTHER ----------
-                        .anyRequest().permitAll()
+                        .anyRequest().authenticated()
                 )
 
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);

@@ -26,4 +26,5 @@ public interface TrashItemKnowledgeRepository extends JpaRepository<TrashItemKno
     @Modifying
     @Query("update TrashItemKnowledge k set k.isActive=false where k.trashItem.id=:itemId and k.isActive=true")
     int deactivateAll(@Param("itemId") Integer itemId);
+    
 }
