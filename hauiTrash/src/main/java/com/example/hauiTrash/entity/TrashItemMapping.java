@@ -60,12 +60,10 @@ public class TrashItemMapping {
         if (isActive == null) isActive = true;
         createdAt = Instant.now();
         updatedAt = createdAt;
-        // ❌ TUYỆT ĐỐI KHÔNG set activeTrashItemId ở đây
     }
 
     @PreUpdate
     void preUpdate() {
         updatedAt = Instant.now();
-        // ❌ TUYỆT ĐỐI KHÔNG set activeTrashItemId ở đây
     }
 }

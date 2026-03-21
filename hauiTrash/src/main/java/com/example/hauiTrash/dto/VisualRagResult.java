@@ -1,0 +1,20 @@
+package com.example.hauiTrash.dto;
+
+import com.example.hauiTrash.entity.TrashItem;
+import com.example.hauiTrash.entity.TrashItemKnowledge;
+import com.example.hauiTrash.entity.TrashType;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class VisualRagResult {
+    private TrashItem trashItem;
+    private TrashType trashType;
+    private TrashItemKnowledge knowledge;
+    private Float mappingConfidence;
+}

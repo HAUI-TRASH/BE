@@ -8,6 +8,12 @@ import org.springframework.data.repository.query.Param;
 import java.util.Optional;
 
 public interface AiRequestRepository extends JpaRepository<AiRequest, Integer> {
-    @Query("select ar from AiRequest ar left join fetch ar.detections where ar.id = :id")
-    Optional<AiRequest> findByIdWithDetections(@Param("id") Integer id);
+    @Query("""
+        select distinct r
+        from AiRequest r
+        left join fetch r.detections d
+        left join fetch r.account a
+        where r.id = :id
+    """)
+    Optional<AiRequest> findByIdWithDetections(Integer id);
 }

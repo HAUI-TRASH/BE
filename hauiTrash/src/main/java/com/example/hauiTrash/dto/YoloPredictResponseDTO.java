@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.util.List;
 import java.util.Map;
+
 @Data
 public class YoloPredictResponseDTO {
     private Integer requestId;
@@ -12,13 +13,22 @@ public class YoloPredictResponseDTO {
     private Map<String, Object> params;
     private Integer count;
     private Float confidenceAvg;
+    private Boolean requiresConfirmation;
     private List<DetectionDTO> detections;
-    @Data
 
+    @Data
     public static class DetectionDTO {
         private String label;
         private String labelDisplay;
         private Float confidence;
         private String annotatedUrl;
+
+        private Integer x1;
+        private Integer y1;
+        private Integer x2;
+        private Integer y2;
+
+        private String cropUrl;
+        private Boolean needsConfirm;
     }
 }
