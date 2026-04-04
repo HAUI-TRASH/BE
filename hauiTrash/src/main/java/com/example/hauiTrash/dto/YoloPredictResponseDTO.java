@@ -18,6 +18,7 @@ public class YoloPredictResponseDTO {
 
     @Data
     public static class DetectionDTO {
+        private Integer id;
         private String label;
         private String labelDisplay;
         private Float confidence;

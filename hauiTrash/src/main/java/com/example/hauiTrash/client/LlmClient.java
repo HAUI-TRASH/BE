@@ -1,5 +1,6 @@
 package com.example.hauiTrash.client;
 
+import com.example.hauiTrash.dto.GeminiTrashItemResult;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -62,4 +63,5 @@ public interface LlmClient {
     String generateLabelDisplay(String label);
 
     Map<String, String> generateLabelDisplayBatch(List<String> labels);
+    GeminiTrashItemResult generateTrashItem(String userInput);
 }

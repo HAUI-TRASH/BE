@@ -7,4 +7,5 @@ import java.util.Optional;
 
 public interface TrashItemAliasRepository extends JpaRepository<TrashItemAlias, Integer> {
     Optional<TrashItemAlias> findByAlias(String alias);
+    Optional<TrashItemAlias> findByAliasIgnoreCase(String alias);
 }
