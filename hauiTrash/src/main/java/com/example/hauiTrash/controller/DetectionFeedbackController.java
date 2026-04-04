@@ -13,17 +13,18 @@ public class DetectionFeedbackController {
 
     private final DetectionFeedbackService detectionFeedbackService;
 
-    @PostMapping("/{id}/feedback")
-    public ResponseEntity<Void> submitFeedback(
-            @PathVariable Integer id,
-            @RequestBody FeedbackRequest req
-    ) {
-        detectionFeedbackService.submitFeedback(
-                id,
-                req.getConfirmedLabel(),
-                req.getFeedbackType(),
-                req.getComment()
-        );
-        return ResponseEntity.ok().build();
-    }
+//    @PostMapping("/{id}/feedback")
+//    public ResponseEntity<Void> submitFeedback(
+//            @PathVariable Integer id,
+//            @RequestBody FeedbackRequest req
+//    ) {
+//        detectionFeedbackService.submitFeedback(
+//                id,
+//                req.getConfirmedLabel(),
+//                req.getFeedbackType(),
+//                req.getComment()
+//        );
+//        return ResponseEntity.ok().build();
+//    }
+
 }

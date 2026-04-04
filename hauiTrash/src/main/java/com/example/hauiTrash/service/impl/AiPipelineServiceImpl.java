@@ -3,6 +3,7 @@ package com.example.hauiTrash.service.impl;
 import com.example.hauiTrash.client.LlmClient;
 import com.example.hauiTrash.client.YoloClient;
 import com.example.hauiTrash.dto.AiResponseDetailsDTO;
+import com.example.hauiTrash.dto.GeminiTrashItemResult;
 import com.example.hauiTrash.dto.VisualRagResult;
 import com.example.hauiTrash.dto.YoloPredictResponseDTO;
 import com.example.hauiTrash.entity.*;
@@ -15,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -36,9 +38,20 @@ public class AiPipelineServiceImpl implements AiPipelineService {
     @Autowired private YoloClient yoloClient;
     @Autowired private LlmClient llmClient;
 
-    private final float DEFAULT_CONF = 0.25f;
-    private final float DEFAULT_IOU  = 0.60f;
-    private final float LOW_CONF_THRESHOLD = 0.50f;
+    private static final float DEFAULT_CONF = 0.25f;
+    private static final float DEFAULT_IOU = 0.60f;
+    private static final float LOW_CONF_THRESHOLD = 0.50f;
+
+    /**
+     * Chỉ override khi số vote confirmed >= threshold
+     */
+    private static final int FEEDBACK_OVERRIDE_MIN_VOTES = 3;
+
+    /**
+     * Nếu object đang NEEDS_CONFIRM thì không ép override mạnh.
+     * Có thể để threshold cao hơn nếu muốn.
+     */
+    private static final int FEEDBACK_OVERRIDE_MIN_VOTES_FOR_LOW_CONF = 999999;
 
     @Override
     @Transactional
@@ -81,6 +94,7 @@ public class AiPipelineServiceImpl implements AiPipelineService {
 
         req.setFinishedAt(Instant.now());
         aiRequestRepo.saveAndFlush(req);
+
         // 3) Visual RAG + Feedback Loop
         enrichDetectionsWithVisualRagAndFeedback(req);
 
@@ -101,78 +115,261 @@ public class AiPipelineServiceImpl implements AiPipelineService {
         return buildResponseReadOnly_NoLlm(req, annotatedUrl);
     }
 
+    /**
+     * Logic mới:
+     * 1. Tách NEEDS_CONFIRM riêng, không override mạnh
+     * 2. Group detections bình thường theo label
+     * 3. Lấy dominant label của request
+     * 4. Với group normal:
+     *    - có thể apply feedback override theo vote
+     *    - retrieval ưu tiên cropUrl
+     *    - dùng dominant label như tín hiệu ưu tiên khi cần lấy tri thức
+     */
     @Transactional
     protected void enrichDetectionsWithVisualRagAndFeedback(AiRequest req) {
         if (req.getDetections() == null || req.getDetections().isEmpty()) {
             return;
         }
 
-        for (Detection det : req.getDetections()) {
-            String rawLabel = det.getLabel();
+        List<Detection> all = req.getDetections();
 
-            // 1) feedback override
-            String finalLabel = applyFeedbackOverride(rawLabel);
+        // Tách low-confidence riêng
+        List<Detection> needConfirm = all.stream()
+                .filter(d -> "NEEDS_CONFIRM".equalsIgnoreCase(d.getStatus()))
+                .toList();
 
-            if (finalLabel != null && !finalLabel.equals(rawLabel)) {
-                det.setLabel(finalLabel);
-                if (det.getLabelDisplay() == null || det.getLabelDisplay().isBlank()) {
-                    det.setLabelDisplay(fallbackLabelDisplay(finalLabel));
+        List<Detection> normal = all.stream()
+                .filter(d -> !"NEEDS_CONFIRM".equalsIgnoreCase(d.getStatus()))
+                .toList();
+
+        // Group phần normal theo label
+        Map<String, List<Detection>> groupedNormal = normal.stream()
+                .filter(d -> d.getLabel() != null && !d.getLabel().isBlank())
+                .collect(Collectors.groupingBy(
+                        d -> normLabel(d.getLabel()),
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
+
+        // dominant label của request, chỉ tính trên group normal
+        String dominantLabel = groupedNormal.entrySet().stream()
+                .max(Comparator.<Map.Entry<String, List<Detection>>>comparingInt(e -> e.getValue().size())
+                        .thenComparing(Map.Entry::getKey))
+                .map(Map.Entry::getKey)
+                .orElse(null);
+
+        // ===== A. Xử lý nhóm normal =====
+        for (var entry : groupedNormal.entrySet()) {
+            String groupLabel = normLabel(entry.getKey());
+            List<Detection> sameGroup = entry.getValue();
+
+            // feedback override theo vote confirmedLabel
+            String votedOverrideLabel = applyFeedbackOverrideByVote(groupLabel, false);
+
+            String effectiveGroupLabel = votedOverrideLabel != null ? votedOverrideLabel : groupLabel;
+
+            // đại diện group: ưu tiên có cropUrl
+            Detection representative = sameGroup.stream()
+                    .filter(d -> d.getCropUrl() != null && !d.getCropUrl().isBlank())
+                    .findFirst()
+                    .orElse(sameGroup.get(0));
+
+            // Visual RAG: ưu tiên crop retrieval, fallback label retrieval
+            VisualRagResult rag = retrieveVisualRag(representative, effectiveGroupLabel, dominantLabel);
+
+            for (Detection det : sameGroup) {
+                // cập nhật label theo vote nếu đủ điều kiện
+                if (votedOverrideLabel != null && !votedOverrideLabel.equals(normLabel(det.getLabel()))) {
+                    det.setLabel(votedOverrideLabel);
+
+                    // đồng bộ luôn labelDisplay theo label mới, không giữ labelDisplay cũ sai
+                    det.setLabelDisplay(fallbackLabelDisplay(votedOverrideLabel));
                 }
+
+                // đảm bảo trash_item tồn tại
+                TrashItem item = getOrCreateTrashItem_NoLlm(
+                        det.getLabel(),
+                        det.getLabelDisplay() != null ? det.getLabelDisplay() : fallbackLabelDisplay(det.getLabel())
+                );
+
+                // nếu trash_item đã có display chuẩn thì đồng bộ ngược lại detection
+                if (item != null && item.getLabelDisplay() != null && !item.getLabelDisplay().isBlank()) {
+                    det.setLabelDisplay(item.getLabelDisplay());
+                } else if (det.getLabelDisplay() == null || det.getLabelDisplay().isBlank()) {
+                    det.setLabelDisplay(fallbackLabelDisplay(det.getLabel()));
+                }
+
+                // classification theo RAG
+                if (rag != null) {
+                    Classification cls = Classification.builder()
+                            .detection(det)
+                            .trashItem(rag.getTrashItem() != null ? rag.getTrashItem() : item)
+                            .trashType(rag.getTrashType())
+                            .source("RAG")
+                            .confidence(rag.getMappingConfidence())
+                            .note(buildRagNote(effectiveGroupLabel, dominantLabel, representative.getCropUrl()))
+                            .build();
+
+                    classificationRepo.save(cls);
+
+                    // Chỉ đồng bộ label sang trashItem khi rag có item rõ ràng
+                    if (rag.getTrashItem() != null) {
+                        det.setLabel(rag.getTrashItem().getLabel());
+                        det.setLabelDisplay(
+                                rag.getTrashItem().getLabelDisplay() != null
+                                        ? rag.getTrashItem().getLabelDisplay()
+                                        : fallbackLabelDisplay(rag.getTrashItem().getLabel())
+                        );
+                    }
+                }
+
+                enqueueReviewIfNeeded(det, rag != null);
+            }
+        }
+
+        // ===== B. Xử lý NEEDS_CONFIRM =====
+        // Không override quá mạnh label, nhưng vẫn phải chuẩn hóa labelDisplay
+        for (Detection det : needConfirm) {
+            String rawLabel = normLabel(det.getLabel());
+            String rawDisplay = normLabelDisplay(det.getLabelDisplay());
+
+            // có thể retrieve nhẹ bằng crop + raw label để hỗ trợ tri thức, nhưng không ép đổi label
+            VisualRagResult rag = retrieveVisualRag(det, rawLabel, dominantLabel);
+
+            // đảm bảo trash_item tồn tại theo raw label hiện tại
+            TrashItem item = getOrCreateTrashItem_NoLlm(
+                    rawLabel,
+                    rawDisplay != null ? rawDisplay : fallbackLabelDisplay(rawLabel)
+            );
+
+            // chuẩn hóa lại labelDisplay cho low-confidence:
+            // ưu tiên trash_item / rag item, nhưng KHÔNG đổi label
+            if (rag != null && rag.getTrashItem() != null) {
+                String resolvedDisplay = rag.getTrashItem().getLabelDisplay();
+                det.setLabelDisplay(
+                        (resolvedDisplay != null && !resolvedDisplay.isBlank())
+                                ? resolvedDisplay
+                                : fallbackLabelDisplay(rawLabel)
+                );
+            } else if (item != null && item.getLabelDisplay() != null && !item.getLabelDisplay().isBlank()) {
+                det.setLabelDisplay(item.getLabelDisplay());
+            } else {
+                det.setLabelDisplay(fallbackLabelDisplay(rawLabel));
             }
 
-            // 2) đảm bảo trash_item tồn tại
-            TrashItem item = getOrCreateTrashItem_NoLlm(det.getLabel(), det.getLabelDisplay());
-
-            // 3) Visual RAG retrieval
-            VisualRagResult rag = retrieveVisualRag(det.getLabel());
-
-            // 4) classification
+            // nếu muốn vẫn lưu classification tham khảo thì có thể lưu, nhưng KHÔNG ép đổi det.label
             if (rag != null) {
                 Classification cls = Classification.builder()
                         .detection(det)
                         .trashItem(rag.getTrashItem())
                         .trashType(rag.getTrashType())
-                        .source("RAG")
+                        .source("RAG_LOW_CONF")
                         .confidence(rag.getMappingConfidence())
-                        .note("Auto classified by Visual RAG")
+                        .note("Low-confidence detection, RAG attached for reference only")
                         .build();
 
                 classificationRepo.save(cls);
-
-                if (rag.getTrashItem() != null && item != null && !Objects.equals(item.getId(), rag.getTrashItem().getId())) {
-                    det.setLabel(rag.getTrashItem().getLabel());
-                    det.setLabelDisplay(
-                            rag.getTrashItem().getLabelDisplay() != null
-                                    ? rag.getTrashItem().getLabelDisplay()
-                                    : fallbackLabelDisplay(rag.getTrashItem().getLabel())
-                    );
-                }
             }
 
-            // 5) review queue nếu cần
             enqueueReviewIfNeeded(det, rag != null);
         }
 
         aiRequestRepo.saveAndFlush(req);
     }
-
-    protected String applyFeedbackOverride(String rawLabel) {
+    /**
+     * Feedback override mới:
+     * - chỉ xét feedback CONFIRMED
+     * - vote theo confirmedLabel
+     * - chỉ override khi đạt threshold
+     * - low-confidence thì mặc định không override mạnh
+     */
+    protected String applyFeedbackOverrideByVote(String rawLabel, boolean isLowConfidence) {
         if (rawLabel == null || rawLabel.isBlank()) {
             return rawLabel;
         }
 
-        return feedbackRepo.findTopByOriginalLabelOrderByIdDesc(rawLabel)
-                .map(fb -> {
-                    if (fb.getConfirmedLabel() != null && !fb.getConfirmedLabel().isBlank()) {
-                        return normLabel(fb.getConfirmedLabel());
-                    }
-                    return rawLabel;
-                })
-                .orElse(rawLabel);
+        List<DetectionFeedback> feedbacks = feedbackRepo
+                .findByOriginalLabelAndFeedbackTypeIgnoreCase(normLabel(rawLabel), "CONFIRMED");
+
+        if (feedbacks == null || feedbacks.isEmpty()) {
+            return rawLabel;
+        }
+
+        Map<String, Long> votes = feedbacks.stream()
+                .map(DetectionFeedback::getConfirmedLabel)
+                .map(this::normLabel)
+                .filter(Objects::nonNull)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+
+        if (votes.isEmpty()) {
+            return rawLabel;
+        }
+
+        Map.Entry<String, Long> winner = votes.entrySet().stream()
+                .max(Comparator.<Map.Entry<String, Long>>comparingLong(Map.Entry::getValue)
+                        .thenComparing(Map.Entry::getKey))
+                .orElse(null);
+
+        if (winner == null) {
+            return rawLabel;
+        }
+
+        int threshold = isLowConfidence
+                ? FEEDBACK_OVERRIDE_MIN_VOTES_FOR_LOW_CONF
+                : FEEDBACK_OVERRIDE_MIN_VOTES;
+
+        if (winner.getValue() < threshold) {
+            return rawLabel;
+        }
+
+        return normLabel(winner.getKey());
+    }
+
+    /**
+     * Visual RAG mới:
+     * 1. ưu tiên cropUrl (định hướng visual retrieval)
+     * 2. fallback về label-text retrieval
+     * 3. dominantLabel truyền vào để có thể ưu tiên logic sau này
+     */
+    @Transactional(readOnly = true)
+    protected VisualRagResult retrieveVisualRag(Detection det, String label, String dominantLabel) {
+        // B1: thử retrieval theo crop
+        VisualRagResult cropBased = retrieveVisualRagByCrop(det != null ? det.getCropUrl() : null, label, dominantLabel);
+        if (cropBased != null) {
+            return cropBased;
+        }
+
+        // B2: fallback label retrieval như cũ
+        return retrieveVisualRagByLabel(label);
+    }
+
+    /**
+     * Chỗ này hiện là stub/fallback để sau này bạn thay bằng:
+     * - gọi embedding service
+     * - tìm item gần nhất theo visual similarity
+     * - rồi lấy knowledge/mapping tương ứng
+     *
+     * Tạm thời:
+     * - nếu có cropUrl thì vẫn ưu tiên alias/item của label hiện tại
+     * - dominantLabel chỉ là tín hiệu bổ sung cho note / mở rộng sau
+     */
+    @Transactional(readOnly = true)
+    protected VisualRagResult retrieveVisualRagByCrop(String cropUrl, String label, String dominantLabel) {
+        if (cropUrl == null || cropUrl.isBlank()) {
+            return null;
+        }
+
+        // TODO:
+        // 1) Gọi visual embedding service bằng cropUrl
+        // 2) Tìm trash item gần nhất theo similarity
+        // 3) Nếu similarity đủ ngưỡng thì return item đó
+        // Hiện tại fallback mềm về label retrieval
+        return retrieveVisualRagByLabel(label);
     }
 
     @Transactional(readOnly = true)
-    protected VisualRagResult retrieveVisualRag(String label) {
+    protected VisualRagResult retrieveVisualRagByLabel(String label) {
         if (label == null || label.isBlank()) {
             return null;
         }
@@ -198,6 +395,22 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                 .build();
     }
 
+    protected String buildRagNote(String effectiveGroupLabel, String dominantLabel, String cropUrl) {
+        StringBuilder sb = new StringBuilder("Auto classified by Visual RAG");
+        if (effectiveGroupLabel != null) {
+            sb.append(" | groupLabel=").append(effectiveGroupLabel);
+        }
+        if (dominantLabel != null) {
+            sb.append(" | dominantLabel=").append(dominantLabel);
+        }
+        if (cropUrl != null && !cropUrl.isBlank()) {
+            sb.append(" | retrieval=crop-first");
+        } else {
+            sb.append(" | retrieval=label-fallback");
+        }
+        return sb.toString();
+    }
+
     protected void enqueueReviewIfNeeded(Detection det, boolean ragFound) {
         Float conf = det.getConfidence();
         String reason = null;
@@ -219,7 +432,6 @@ public class AiPipelineServiceImpl implements AiPipelineService {
             return;
         }
 
-        // QUAN TRỌNG: đảm bảo detection đã có ID
         if (det.getId() == null) {
             detectionRepo.saveAndFlush(det);
         }
@@ -264,49 +476,75 @@ public class AiPipelineServiceImpl implements AiPipelineService {
             reviewQueueRepo.save(rq);
         }
     }
-
     @Transactional
-    public void submitFeedback(Integer detectionId, String confirmedLabel, String feedbackType, String comment) {
+    public AiResponseDetailsDTO submitFeedbackAndReturn(
+            Integer detectionId,
+            String confirmedInput,
+            String feedbackType,
+            String comment
+    ) {
         Detection det = detectionRepo.findById(detectionId)
                 .orElseThrow(() -> new RuntimeException("Detection not found: " + detectionId));
 
-        String normalizedConfirmed = normLabel(confirmedLabel);
+        AiRequest req = det.getAiRequest();
+
+        String originalLabel = det.getLabel();
+
+        TrashItem resolvedItem = null;
+        if ("CONFIRMED".equalsIgnoreCase(feedbackType)) {
+            resolvedItem = resolveOrCreateTrashItemFromUserInput(confirmedInput);
+        }
+
+        String feedbackAction;
+        if ("CONFIRMED".equalsIgnoreCase(feedbackType)) {
+            if (resolvedItem != null && originalLabel != null
+                    && originalLabel.equalsIgnoreCase(resolvedItem.getLabel())) {
+                feedbackAction = "CONFIRM";
+            } else {
+                feedbackAction = "CORRECT";
+            }
+        } else if ("REJECTED".equalsIgnoreCase(feedbackType)) {
+            feedbackAction = "REJECT";
+        } else {
+            feedbackAction = "CONFIRM";
+        }
 
         DetectionFeedback fb = DetectionFeedback.builder()
-                .detection(det)
-                .originalLabel(det.getLabel())
-                .confirmedLabel(normalizedConfirmed)
+                .detection(det) .reviewStatus("PENDING")
+                .aiRequest(req)
+                .originalLabel(originalLabel)
+                .confirmedLabel(resolvedItem != null ? resolvedItem.getLabel() : null)
                 .feedbackType(feedbackType)
+                .feedbackAction(feedbackAction)
+                .reviewStatus("PENDING")
                 .comment(comment)
                 .createdAt(Instant.now())
                 .build();
 
         feedbackRepo.save(fb);
+        feedbackRepo.save(fb);
 
-        if ("REJECTED".equalsIgnoreCase(feedbackType)) {
-            det.setStatus("REJECTED");
-        } else {
-            det.setStatus("CONFIRMED");
+        det.setStatus("CONFIRMED");
 
-            if (normalizedConfirmed != null) {
-                det.setLabel(normalizedConfirmed);
-                det.setLabelDisplay(fallbackLabelDisplay(normalizedConfirmed));
-            }
-
-            TrashItem item = getOrCreateTrashItem_NoLlm(normalizedConfirmed, fallbackLabelDisplay(normalizedConfirmed));
-            VisualRagResult rag = retrieveVisualRag(normalizedConfirmed);
-
-            Classification cls = Classification.builder()
-                    .detection(det)
-                    .trashItem(rag != null && rag.getTrashItem() != null ? rag.getTrashItem() : item)
-                    .trashType(rag != null ? rag.getTrashType() : null)
-                    .source("FEEDBACK_RAG")
-                    .confidence(1.0f)
-                    .note("Re-classified from user feedback")
-                    .build();
-
-            classificationRepo.save(cls);
+        if (resolvedItem != null) {
+            det.setLabel(resolvedItem.getLabel());
+            det.setLabelDisplay(resolvedItem.getLabelDisplay());
         }
+
+        String ragBaseLabel = resolvedItem != null ? resolvedItem.getLabel() : det.getLabel();
+        VisualRagResult rag = retrieveVisualRag(det, ragBaseLabel, ragBaseLabel);
+
+        Classification cls = Classification.builder()
+                .detection(det)
+
+                .trashItem(rag != null && rag.getTrashItem() != null ? rag.getTrashItem() : resolvedItem)
+                .trashType(rag != null ? rag.getTrashType() : null)
+                .source("FEEDBACK_RAG")
+                .confidence(1.0f)
+                .note("Re-classified from user feedback")
+                .build();
+
+        classificationRepo.save(cls);
 
         reviewQueueRepo.findByEntityTypeAndEntityIdAndStatus("DETECTION", det.getId(), "PENDING")
                 .ifPresent(rq -> {
@@ -315,7 +553,78 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                     reviewQueueRepo.save(rq);
                 });
 
-        detectionRepo.save(det);
+        detectionRepo.saveAndFlush(det);
+        aiRequestRepo.flush();
+
+        AiRequest reloadedReq = aiRequestRepo.findByIdWithDetections(req.getId())
+                .orElseThrow(() -> new RuntimeException("AiRequest not found after feedback: " + req.getId()));
+
+        String annotatedUrl = (reloadedReq.getDetections() != null && !reloadedReq.getDetections().isEmpty())
+                ? reloadedReq.getDetections().get(0).getAnnotatedUrl()
+                : null;
+
+        AiResponseDetailsDTO dto = buildResponse_NoLlm(reloadedReq, annotatedUrl);
+
+        if (dto == null) {
+            throw new RuntimeException("buildResponse_NoLlm returned null");
+        }
+
+        return dto;
+    }
+    @Transactional
+    protected TrashItem resolveOrCreateTrashItemFromUserInput(String userInput) {
+        if (userInput == null || userInput.isBlank()) {
+            throw new RuntimeException("confirmed input cannot be blank");
+        }
+
+        String normalizedInput = userInput.trim();
+
+        // 1. tìm theo label exact
+        Optional<TrashItem> byLabel = trashItemRepo.findByLabel(normLabel(normalizedInput));
+        if (byLabel.isPresent()) {
+            return byLabel.get();
+        }
+
+        // 2. tìm theo labelDisplay exact
+        Optional<TrashItem> byDisplay = trashItemRepo.findByLabelDisplayIgnoreCase(normalizedInput);
+        if (byDisplay.isPresent()) {
+            return byDisplay.get();
+        }
+
+        // 3. tìm theo alias nếu có
+        Optional<TrashItemAlias> alias = trashItemAliasRepo.findByAliasIgnoreCase(normalizedInput);
+        if (alias.isPresent() && alias.get().getTrashItem() != null) {
+            return alias.get().getTrashItem();
+        }
+
+        // 4. chưa có -> gọi Gemini sinh label + labelDisplay chuẩn
+        GeminiTrashItemResult geminiResult = llmClient.generateTrashItem(normalizedInput);
+        String finalLabel = normLabel(geminiResult.getLabel());
+        String finalDisplay = geminiResult.getLabelDisplay() != null && !geminiResult.getLabelDisplay().isBlank()
+                ? geminiResult.getLabelDisplay().trim()
+                : normalizedInput;
+
+        // check lại 1 lần theo label Gemini trả về
+        Optional<TrashItem> existed = trashItemRepo.findByLabel(finalLabel);
+        if (existed.isPresent()) {
+            TrashItem item = existed.get();
+            if (item.getLabelDisplay() == null || item.getLabelDisplay().isBlank()) {
+                item.setLabelDisplay(finalDisplay);
+                item.setUpdatedAt(Instant.now());
+                return trashItemRepo.save(item);
+            }
+            return item;
+        }
+
+        TrashItem newItem = TrashItem.builder()
+                .label(finalLabel)
+                .labelDisplay(finalDisplay)
+                .status("NEED_REVIEW")
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+
+        return trashItemRepo.save(newItem);
     }
 
     // =========================
@@ -333,15 +642,39 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                 .average()
                 .orElse(0.0);
 
+        // 1. Tách NEEDS_CONFIRM
+        List<Detection> needConfirm = dets.stream()
+                .filter(d -> "NEEDS_CONFIRM".equalsIgnoreCase(d.getStatus()))
+                .toList();
+
+        // 2. Group phần còn lại theo label
         Map<String, List<Detection>> grouped = dets.stream()
+                .filter(d -> !"NEEDS_CONFIRM".equalsIgnoreCase(d.getStatus()))
                 .filter(d -> d.getLabel() != null)
-                .collect(Collectors.groupingBy(Detection::getLabel, LinkedHashMap::new, Collectors.toList()));
+                .collect(Collectors.groupingBy(
+                        Detection::getLabel,
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
 
         Map<String, String> labelDisplayMap = resolveLabelDisplay_NoLlm(grouped);
-        Map<String, TrashItem> itemCache = new HashMap<>();
 
         List<AiResponseDetailsDTO.DetectionDTO> out = new ArrayList<>();
 
+        // A. NEEDS_CONFIRM để riêng
+        for (Detection det : needConfirm) {
+            TrashItem item = trashItemRepo.findByLabel(det.getLabel()).orElse(null);
+            TrashItemMapping mapping = (item == null) ? null : mappingRepo.findActiveByTrashItemId(item.getId()).orElse(null);
+            TrashItemKnowledge knowledge = (item == null) ? null : knowledgeRepo.findActiveByTrashItemId(item.getId()).orElse(null);
+
+            AiResponseDetailsDTO.DetectionDTO dto = toDTO_NoLlm(det, item, mapping, knowledge);
+            dto.setQuantity(1);
+            dto.setStatus("NEEDS_CONFIRM");
+
+            out.add(dto);
+        }
+
+        // B. Group normal
         for (var entry : grouped.entrySet()) {
             String label = entry.getKey();
             List<Detection> same = entry.getValue();
@@ -354,17 +687,14 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                     .average()
                     .orElse(0.0);
 
-//            Detection first = same.get(0);
             Detection first = same.stream()
                     .filter(d -> d.getCropUrl() != null && !d.getCropUrl().isBlank())
                     .findFirst()
-                    .orElseGet(() -> same.stream()
-                            .filter(d -> "NEEDS_CONFIRM".equalsIgnoreCase(d.getStatus()))
-                            .findFirst()
-                            .orElse(same.get(0)));
-            String labelDisplay = labelDisplayMap.getOrDefault(label, fallbackLabelDisplay(label));
-            TrashItem item = itemCache.computeIfAbsent(label, l -> getOrCreateTrashItem_NoLlm(l, labelDisplay));
+                    .orElse(same.get(0));
 
+            String labelDisplay = labelDisplayMap.getOrDefault(label, fallbackLabelDisplay(label));
+
+            TrashItem item = getOrCreateTrashItem_NoLlm(label, labelDisplay);
             TrashItemMapping mapping = mappingRepo.findActiveByTrashItemId(item.getId()).orElse(null);
             TrashItemKnowledge knowledge = knowledgeRepo.findActiveByTrashItemId(item.getId()).orElse(null);
 
@@ -375,15 +705,21 @@ public class AiPipelineServiceImpl implements AiPipelineService {
             dto.setQuantity(quantity);
             dto.setConfidence(groupAvg);
             dto.setLabelDisplay(labelDisplay);
-
-            boolean groupNeedsConfirm = same.stream()
-                    .anyMatch(d -> "NEEDS_CONFIRM".equalsIgnoreCase(d.getStatus()));
-            dto.setStatus(groupNeedsConfirm ? "NEEDS_CONFIRM" : first.getStatus());
+            dto.setStatus("DETECTED");
 
             out.add(dto);
         }
-        boolean requiresConfirmation = dets.stream()
-                .anyMatch(d -> "NEEDS_CONFIRM".equalsIgnoreCase(d.getStatus()));
+
+        out.sort(Comparator
+                .comparing((AiResponseDetailsDTO.DetectionDTO x) ->
+                        !"NEEDS_CONFIRM".equalsIgnoreCase(x.getStatus()))
+                .thenComparing(
+                        AiResponseDetailsDTO.DetectionDTO::getId,
+                        Comparator.nullsLast(Integer::compareTo)
+                )
+        );
+
+        boolean requiresConfirmation = !needConfirm.isEmpty();
 
         return AiResponseDetailsDTO.builder()
                 .id(req.getId())
@@ -398,7 +734,6 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                 .detections(out)
                 .build();
     }
-
     @Transactional(readOnly = true)
     protected AiResponseDetailsDTO buildResponseReadOnly_NoLlm(AiRequest req, String annotatedUrl) {
         List<Detection> dets = (req.getDetections() == null) ? List.of() : req.getDetections();
@@ -411,18 +746,45 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                 .average()
                 .orElse(0.0);
 
-        boolean requiresConfirmation = dets.stream()
-                .anyMatch(d -> "NEEDS_CONFIRM".equalsIgnoreCase(d.getStatus()));
+        List<Detection> needConfirm = dets.stream()
+                .filter(d -> "NEEDS_CONFIRM".equalsIgnoreCase(d.getStatus()))
+                .toList();
 
         Map<String, List<Detection>> grouped = dets.stream()
+                .filter(d -> !"NEEDS_CONFIRM".equalsIgnoreCase(d.getStatus()))
                 .filter(d -> d.getLabel() != null)
-                .collect(Collectors.groupingBy(Detection::getLabel, LinkedHashMap::new, Collectors.toList()));
+                .collect(Collectors.groupingBy(
+                        d -> normLabel(d.getLabel()),
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
 
-        Map<String, String> labelDisplayMap = resolveLabelDisplay_NoLlm(grouped);
+        Map<String, String> labelDisplayMap = resolveLabelDisplay_ReadOnly(grouped);
 
         List<AiResponseDetailsDTO.DetectionDTO> out = new ArrayList<>();
 
-        for (var entry : grouped.entrySet()) {
+        // A. NEEDS_CONFIRM để riêng
+        for (Detection det : needConfirm) {
+            String label = normLabel(det.getLabel());
+
+            TrashItem item = findTrashItemReadOnly(label);
+            TrashItemMapping mapping = (item == null)
+                    ? null
+                    : mappingRepo.findActiveByTrashItemId(item.getId()).orElse(null);
+            TrashItemKnowledge knowledge = (item == null)
+                    ? null
+                    : knowledgeRepo.findActiveByTrashItemId(item.getId()).orElse(null);
+
+            AiResponseDetailsDTO.DetectionDTO dto = toDTO_ReadOnly(det, item, mapping, knowledge);
+            dto.setQuantity(1);
+            dto.setStatus("NEEDS_CONFIRM");
+            dto.setTrashItemId(item != null ? item.getId() : null);
+
+            out.add(dto);
+        }
+
+        // B. Group normal
+        for (Map.Entry<String, List<Detection>> entry : grouped.entrySet()) {
             String label = entry.getKey();
             List<Detection> same = entry.getValue();
 
@@ -434,38 +796,40 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                     .average()
                     .orElse(0.0);
 
-//            Detection first = same.get(0);
             Detection first = same.stream()
                     .filter(d -> d.getCropUrl() != null && !d.getCropUrl().isBlank())
                     .findFirst()
-                    .orElseGet(() -> same.stream()
-                            .filter(d -> "NEEDS_CONFIRM".equalsIgnoreCase(d.getStatus()))
-                            .findFirst()
-                            .orElse(same.get(0)));
+                    .orElse(same.get(0));
+
             String labelDisplay = labelDisplayMap.getOrDefault(label, fallbackLabelDisplay(label));
 
-            TrashItem item = trashItemRepo.findByLabel(label).orElse(null);
-            TrashItemMapping mapping = (item == null) ? null : mappingRepo.findActiveByTrashItemId(item.getId()).orElse(null);
-            TrashItemKnowledge knowledge = (item == null) ? null : knowledgeRepo.findActiveByTrashItemId(item.getId()).orElse(null);
+            TrashItem item = findTrashItemReadOnly(label);
+            TrashItemMapping mapping = (item == null)
+                    ? null
+                    : mappingRepo.findActiveByTrashItemId(item.getId()).orElse(null);
+            TrashItemKnowledge knowledge = (item == null)
+                    ? null
+                    : knowledgeRepo.findActiveByTrashItemId(item.getId()).orElse(null);
 
-            AiResponseDetailsDTO.DetectionDTO dto = toDTO_NoLlm(first, item, mapping, knowledge);
-
-            // giữ id thật để FE submit feedback được
+            AiResponseDetailsDTO.DetectionDTO dto = toDTO_ReadOnly(first, item, mapping, knowledge);
             dto.setId(first.getId());
+            dto.setTrashItemId(item != null ? item.getId() : null);
             dto.setQuantity(quantity);
             dto.setConfidence(groupAvg);
             dto.setLabelDisplay(labelDisplay);
-
-            boolean groupNeedsConfirm = same.stream()
-                    .anyMatch(d -> "NEEDS_CONFIRM".equalsIgnoreCase(d.getStatus()));
-            dto.setStatus(groupNeedsConfirm ? "NEEDS_CONFIRM" : first.getStatus());
-
-            if (item != null) {
-                dto.setTrashItemId(item.getId());
-            }
+            dto.setStatus("DETECTED");
 
             out.add(dto);
         }
+
+        out.sort(Comparator
+                .comparing((AiResponseDetailsDTO.DetectionDTO x) ->
+                        !"NEEDS_CONFIRM".equalsIgnoreCase(x.getStatus()))
+                .thenComparing(
+                        AiResponseDetailsDTO.DetectionDTO::getId,
+                        Comparator.nullsLast(Integer::compareTo)
+                )
+        );
 
         return AiResponseDetailsDTO.builder()
                 .id(req.getId())
@@ -476,68 +840,202 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                 .annotatedUrl(annotatedUrl)
                 .count(rawCount)
                 .confidenceAvg(rawAvg)
-                .requiresConfirmation(requiresConfirmation)
+                .requiresConfirmation(!needConfirm.isEmpty())
                 .detections(out)
                 .build();
+    }
+    private AiResponseDetailsDTO.DetectionDTO toDTO_ReadOnly(
+            Detection det,
+            TrashItem item,
+            TrashItemMapping mapping,
+            TrashItemKnowledge kn
+    ) {
+        Classification latestCls = null;
+        if (det.getId() != null) {
+            latestCls = classificationRepo.findTopByDetectionIdOrderByIdDesc(det.getId()).orElse(null);
+        }
+
+        TrashItem finalItem = item;
+        TrashType finalType = mapping != null ? mapping.getTrashType() : null;
+
+        if (latestCls != null) {
+            if (latestCls.getTrashItem() != null) {
+                finalItem = latestCls.getTrashItem();
+            }
+            if (latestCls.getTrashType() != null) {
+                finalType = latestCls.getTrashType();
+            }
+        }
+
+        TrashItemKnowledge finalKnowledge = kn;
+        if (finalItem != null) {
+            finalKnowledge = knowledgeRepo.findActiveByTrashItemId(finalItem.getId()).orElse(kn);
+        }
+
+        String resolvedLabel = normLabel(det.getLabel());
+
+        String resolvedLabelDisplay;
+        if (finalItem != null
+                && finalItem.getLabelDisplay() != null
+                && !finalItem.getLabelDisplay().isBlank()) {
+            resolvedLabelDisplay = finalItem.getLabelDisplay();
+        } else if (det.getLabelDisplay() != null && !det.getLabelDisplay().isBlank()) {
+            resolvedLabelDisplay = det.getLabelDisplay();
+        } else {
+            resolvedLabelDisplay = fallbackLabelDisplay(resolvedLabel);
+        }
+
+        return AiResponseDetailsDTO.DetectionDTO.builder()
+                .id(det.getId())
+                .label(resolvedLabel)
+                .labelDisplay(resolvedLabelDisplay)
+                .confidence(det.getConfidence() != null ? det.getConfidence() : 0f)
+                .annotatedUrl(det.getAnnotatedUrl())
+                .status(det.getStatus())
+                .x1(det.getX1())
+                .y1(det.getY1())
+                .x2(det.getX2())
+                .y2(det.getY2())
+                .cropUrl(det.getCropUrl())
+                .trashItemId(finalItem != null ? finalItem.getId() : null)
+                .trashType(finalType != null ? finalType.getName() : null)
+                .material(finalKnowledge != null ? finalKnowledge.getMaterial() : null)
+                .note(finalKnowledge != null ? finalKnowledge.getNote() : null)
+                .action(finalKnowledge != null ? finalKnowledge.getAction() : null)
+                .detail(finalKnowledge == null ? null : AiResponseDetailsDTO.DetailDTO.builder()
+                        .impact(finalKnowledge.getImpact())
+                        .toxicity(finalKnowledge.getToxicity())
+                        .safeSteps(finalKnowledge.getSafeSteps())
+                        .build())
+                .build();
+    }
+    private Map<String, String> resolveLabelDisplay_ReadOnly(Map<String, List<Detection>> grouped) {
+        Map<String, String> result = new HashMap<>();
+
+        List<String> labels = grouped.keySet().stream()
+                .filter(Objects::nonNull)
+                .map(this::normLabel)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        if (!labels.isEmpty()) {
+            List<TrashItem> items = trashItemRepo.findAllByLabelIn(labels);
+            for (TrashItem it : items) {
+                if (it.getLabel() != null
+                        && it.getLabelDisplay() != null
+                        && !it.getLabelDisplay().isBlank()) {
+                    result.put(normLabel(it.getLabel()), it.getLabelDisplay().trim());
+                }
+            }
+        }
+
+        for (Map.Entry<String, List<Detection>> e : grouped.entrySet()) {
+            String label = normLabel(e.getKey());
+            if (result.containsKey(label)) {
+                continue;
+            }
+
+            Detection first = e.getValue().get(0);
+            String yoloLd = normLabelDisplay(first.getLabelDisplay());
+            if (yoloLd != null) {
+                result.put(label, yoloLd);
+            }
+        }
+
+        for (String label : grouped.keySet()) {
+            String normalized = normLabel(label);
+            result.putIfAbsent(normalized, fallbackLabelDisplay(normalized));
+        }
+
+        return result;
+    }
+    private TrashItem findTrashItemReadOnly(String label) {
+        String normalizedLabel = normLabel(label);
+        if (normalizedLabel == null || normalizedLabel.isBlank()) {
+            return null;
+        }
+        return trashItemRepo.findByLabel(normalizedLabel).orElse(null);
     }
 
     private Map<String, String> resolveLabelDisplay_NoLlm(Map<String, List<Detection>> grouped) {
         Map<String, String> result = new HashMap<>();
 
-        // 1. from YOLO
-        for (var e : grouped.entrySet()) {
-            String label = e.getKey();
-            Detection first = e.getValue().get(0);
-            String yoloLd = first.getLabelDisplay();
+        // 1. ưu tiên từ DB trước để tránh YOLO labelDisplay sai
+        List<String> labels = grouped.keySet().stream()
+                .filter(Objects::nonNull)
+                .map(this::normLabel)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
 
-            if (yoloLd != null && !yoloLd.isBlank()) {
-                result.put(label, yoloLd.trim());
+        if (!labels.isEmpty()) {
+            List<TrashItem> items = trashItemRepo.findAllByLabelIn(labels);
+            for (TrashItem it : items) {
+                if (it.getLabel() != null && it.getLabelDisplay() != null && !it.getLabelDisplay().isBlank()) {
+                    result.put(normLabel(it.getLabel()), it.getLabelDisplay().trim());
+                }
             }
         }
 
-        // 2. from DB
-        List<String> needDb = grouped.keySet().stream()
-                .filter(l -> !result.containsKey(l))
-                .toList();
+        // 2. nếu DB chưa có thì mới lấy từ detection / YOLO
+        for (var e : grouped.entrySet()) {
+            String label = normLabel(e.getKey());
+            if (result.containsKey(label)) {
+                continue;
+            }
 
-        if (!needDb.isEmpty()) {
-            List<TrashItem> items = trashItemRepo.findAllByLabelIn(needDb);
-            for (TrashItem it : items) {
-                if (it.getLabel() != null && it.getLabelDisplay() != null && !it.getLabelDisplay().isBlank()) {
-                    result.put(it.getLabel(), it.getLabelDisplay().trim());
-                }
+            Detection first = e.getValue().get(0);
+            String yoloLd = normLabelDisplay(first.getLabelDisplay());
+
+            if (yoloLd != null) {
+                result.put(label, yoloLd);
             }
         }
 
         // 3. fallback
         for (String label : grouped.keySet()) {
-            result.putIfAbsent(label, fallbackLabelDisplay(label));
+            String normalized = normLabel(label);
+            result.putIfAbsent(normalized, fallbackLabelDisplay(normalized));
         }
 
         return result;
     }
-
     protected TrashItem getOrCreateTrashItem_NoLlm(String label, String labelDisplay) {
-        if (label == null || label.isBlank()) {
+        String normalizedLabel = normLabel(label);
+        String normalizedDisplay = normLabelDisplay(labelDisplay);
+
+        if (normalizedLabel == null || normalizedLabel.isBlank()) {
             throw new RuntimeException("Label cannot be null/blank");
         }
 
-        return trashItemRepo.findByLabel(label).map(item -> {
-            if ((item.getLabelDisplay() == null || item.getLabelDisplay().isBlank())
-                    && labelDisplay != null && !labelDisplay.isBlank()) {
-                item.setLabelDisplay(labelDisplay);
-                return trashItemRepo.save(item);
-            }
-            return item;
-        }).orElseGet(() ->
-                trashItemRepo.save(TrashItem.builder()
-                        .label(label)
-                        .labelDisplay(labelDisplay)
-                        .status("NEED_REVIEW")
-                        .createdAt(Instant.now())
-                        .updatedAt(Instant.now())
-                        .build())
-        );
+        String finalDisplay = normalizedDisplay != null ? normalizedDisplay : fallbackLabelDisplay(normalizedLabel);
+
+        return trashItemRepo.findByLabel(normalizedLabel)
+                .map(item -> {
+                    boolean changed = false;
+
+                    if (item.getLabelDisplay() == null || item.getLabelDisplay().isBlank()) {
+                        item.setLabelDisplay(finalDisplay);
+                        changed = true;
+                    }
+
+                    if (item.getUpdatedAt() == null) {
+                        item.setUpdatedAt(Instant.now());
+                        changed = true;
+                    }
+
+                    return changed ? trashItemRepo.save(item) : item;
+                })
+                .orElseGet(() ->
+                        trashItemRepo.save(TrashItem.builder()
+                                .label(normalizedLabel)
+                                .labelDisplay(finalDisplay)
+                                .status("NEED_REVIEW")
+                                .createdAt(Instant.now())
+                                .updatedAt(Instant.now())
+                                .build())
+                );
     }
 
     private AiResponseDetailsDTO.DetectionDTO toDTO_NoLlm(
@@ -568,10 +1066,21 @@ public class AiPipelineServiceImpl implements AiPipelineService {
             finalKnowledge = knowledgeRepo.findActiveByTrashItemId(finalItem.getId()).orElse(kn);
         }
 
+        String resolvedLabel = normLabel(det.getLabel());
+
+        String resolvedLabelDisplay = null;
+        if (finalItem != null && finalItem.getLabelDisplay() != null && !finalItem.getLabelDisplay().isBlank()) {
+            resolvedLabelDisplay = finalItem.getLabelDisplay();
+        } else if (det.getLabelDisplay() != null && !det.getLabelDisplay().isBlank()) {
+            resolvedLabelDisplay = det.getLabelDisplay();
+        } else {
+            resolvedLabelDisplay = fallbackLabelDisplay(resolvedLabel);
+        }
+
         return AiResponseDetailsDTO.DetectionDTO.builder()
                 .id(det.getId())
-                .label(det.getLabel())
-                .labelDisplay(det.getLabelDisplay() != null ? det.getLabelDisplay() : det.getLabel())
+                .label(resolvedLabel)
+                .labelDisplay(resolvedLabelDisplay)
                 .confidence(det.getConfidence() != null ? det.getConfidence() : 0f)
                 .annotatedUrl(det.getAnnotatedUrl())
                 .status(det.getStatus())

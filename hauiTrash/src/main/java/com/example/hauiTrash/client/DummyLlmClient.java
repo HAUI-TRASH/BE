@@ -1,5 +1,6 @@
 package com.example.hauiTrash.client;
 
+import com.example.hauiTrash.dto.GeminiTrashItemResult;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -85,5 +86,10 @@ public class DummyLlmClient implements LlmClient {
             map.put(k, k.replace('_', ' ').trim());
         }
         return map;
+    }
+
+    @Override
+    public GeminiTrashItemResult generateTrashItem(String userInput) {
+        return null;
     }
 }

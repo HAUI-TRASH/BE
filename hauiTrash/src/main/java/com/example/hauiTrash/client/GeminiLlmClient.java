@@ -3,6 +3,7 @@ package com.example.hauiTrash.client;
 import com.example.hauiTrash.config.GeminiProperties;
 import com.example.hauiTrash.dto.GeminiGenerateContentRequest;
 import com.example.hauiTrash.dto.GeminiGenerateContentResponse;
+import com.example.hauiTrash.dto.GeminiTrashItemResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -12,7 +13,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
-
+import java.text.Normalizer;
+import java.util.Locale;
 import java.time.Duration;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -612,4 +614,98 @@ Trả JSON đúng schema:
     }
 
     private String n(String s) { return s == null ? "" : s; }
+    @Override
+    public GeminiTrashItemResult generateTrashItem(String userInput) {
+        String cleanInput = n(userInput).trim();
+        if (cleanInput.isBlank()) {
+            return GeminiTrashItemResult.builder()
+                    .label("unknown_item")
+                    .labelDisplay("Không rõ")
+                    .build();
+        }
+
+        String system = """
+Bạn là chuyên gia chuẩn hóa tên vật thể rác tại Việt Nam.
+
+NHIỆM VỤ:
+- Từ tên người dùng nhập bằng tiếng Việt, sinh ra:
+  1. label kỹ thuật dạng snake_case, chữ thường, không dấu, không khoảng trắng
+  2. labelDisplay tiếng Việt ngắn gọn, tự nhiên, dễ hiểu
+
+QUY TẮC:
+- label phải machine-friendly
+- labelDisplay phải là tiếng Việt
+- Không trả markdown
+- Chỉ trả về 1 JSON object hợp lệ
+
+Schema:
+{
+  "label": "plastic_bottle",
+  "labelDisplay": "Chai nhựa"
+}
+""";
+
+        String user = """
+userInput: %s
+
+Trả JSON đúng schema:
+{
+  "label": "plastic_bottle",
+  "labelDisplay": "Chai nhựa"
+}
+""".formatted(cleanInput);
+
+        try {
+            String json = callGeminiJson(system, user);
+
+            if (json == null || json.isBlank() || "{}".equals(json.trim())) {
+                throw new IllegalArgumentException("empty_json");
+            }
+
+            GeminiTrashItemResult r = om.readValue(json, GeminiTrashItemResult.class);
+
+            String finalLabel = (r != null && r.getLabel() != null && !r.getLabel().isBlank())
+                    ? normalizeMachineLabel(r.getLabel())
+                    : toSnakeCaseAscii(cleanInput);
+
+            String finalDisplay = (r != null && r.getLabelDisplay() != null && !r.getLabelDisplay().isBlank())
+                    ? r.getLabelDisplay().trim()
+                    : cleanInput;
+
+            return GeminiTrashItemResult.builder()
+                    .label(finalLabel)
+                    .labelDisplay(finalDisplay)
+                    .build();
+
+        } catch (Exception e) {
+            log.error("generateTrashItem parse/error input={}", cleanInput, e);
+            return GeminiTrashItemResult.builder()
+                    .label(toSnakeCaseAscii(cleanInput))
+                    .labelDisplay(cleanInput)
+                    .build();
+        }
+    }
+    private String normalizeMachineLabel(String input) {
+        if (input == null) return "unknown_item";
+        return input.trim()
+                .toLowerCase(Locale.ROOT)
+                .replace('-', '_')
+                .replaceAll("[^a-z0-9_]+", "_")
+                .replaceAll("_+", "_")
+                .replaceAll("^_+|_+$", "");
+    }
+
+    private String toSnakeCaseAscii(String input) {
+        if (input == null) return "unknown_item";
+
+        String s = Normalizer.normalize(input, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .replace("đ", "d")
+                .replace("Đ", "d")
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "_")
+                .replaceAll("^_+|_+$", "");
+
+        return s.isBlank() ? "unknown_item" : s;
+    }
 }

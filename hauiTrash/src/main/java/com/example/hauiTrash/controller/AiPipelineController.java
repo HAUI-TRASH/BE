@@ -1,11 +1,13 @@
 package com.example.hauiTrash.controller;
 
 import com.example.hauiTrash.dto.AiResponseDetailsDTO;
+import com.example.hauiTrash.dto.FeedbackRequest;
 import com.example.hauiTrash.dto.KnowledgeViewDTO;
 import com.example.hauiTrash.service.AiPipelineService;
 import com.example.hauiTrash.service.TrashKnowledgeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -37,5 +39,27 @@ public class AiPipelineController {
                                      @RequestParam(defaultValue = "false") boolean force) {
         return knowledgeService.generateKnowledge(trashItemId, force);
     }
+    @PostMapping("/detections/{id}/feedback")
+    public ResponseEntity<AiResponseDetailsDTO> submitFeedback(
+            @PathVariable Integer id,
+            @RequestBody FeedbackRequest req
+    ) {
+        System.out.println("=== CONTROLLER FEEDBACK ===");
+        System.out.println("id = " + id);
+        System.out.println("confirmedLabel = " + req.getConfirmedLabel());
+        System.out.println("feedbackType = " + req.getFeedbackType());
+
+        AiResponseDetailsDTO result = aiPipelineService.submitFeedbackAndReturn(
+                id,
+                req.getConfirmedLabel(),
+                req.getFeedbackType(),
+                req.getComment()
+        );
+
+        System.out.println("result = " + result);
+
+        return ResponseEntity.ok(result);
+    }
+
 
 }
