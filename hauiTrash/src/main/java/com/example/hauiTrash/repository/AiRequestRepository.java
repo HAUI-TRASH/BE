@@ -16,4 +16,13 @@ public interface AiRequestRepository extends JpaRepository<AiRequest, Integer> {
         where r.id = :id
     """)
     Optional<AiRequest> findByIdWithDetections(Integer id);
+
+    @Query("""
+        select distinct r
+        from AiRequest r
+        left join fetch r.detections d
+        where r.account.id = :accountId
+        order by r.createdAt desc
+    """)
+    java.util.List<AiRequest> findHistoryByAccountId(@Param("accountId") Integer accountId);
 }
