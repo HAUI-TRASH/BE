@@ -7,4 +7,5 @@ public interface AiPipelineService {
     AiResponseDetailsDTO getDetail(Integer requestId);
 
     AiResponseDetailsDTO submitFeedbackAndReturn(Integer id, String confirmedLabel, String feedbackType, String comment);
+    java.util.List<com.example.hauiTrash.dto.HistoryItemDTO> getUserHistory();
 }

@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/v1")
+@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class AiPipelineController {
     @Autowired
@@ -61,5 +62,11 @@ public class AiPipelineController {
         return ResponseEntity.ok(result);
     }
 
-
+    @GetMapping("/user/history")
+    public ResponseEntity<com.example.hauiTrash.dto.ApiResponse<java.util.List<com.example.hauiTrash.dto.HistoryItemDTO>>> getMyHistory() {
+        return ResponseEntity.ok(com.example.hauiTrash.dto.ApiResponse.<java.util.List<com.example.hauiTrash.dto.HistoryItemDTO>>builder()
+                .message("Lấy lịch sử thành công")
+                .data(aiPipelineService.getUserHistory())
+                .build());
+    }
 }

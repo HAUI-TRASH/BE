@@ -55,6 +55,8 @@ public class SecurityConfig {
 
                         // ---------- PUBLIC ----------
                         .requestMatchers("/api/v1/auth/register").permitAll()
+                        .requestMatchers("/api/v1/auth/login/google").permitAll()
+                        .requestMatchers("/api/v1/auth/login/facebook").permitAll()
                         .requestMatchers("/api/v1/auth/login/user").permitAll()
                         .requestMatchers("/api/v1/auth/login/admin").permitAll()
                         .requestMatchers("/api/v1/auth/logout").permitAll()
@@ -64,6 +66,7 @@ public class SecurityConfig {
 
                         // ---------- USER (BẮT BUỘC LOGIN) ----------
                         .requestMatchers("/api/v1/user/**").authenticated()
+
 
                         // ---------- ALL OTHER ----------
                         .anyRequest().authenticated()

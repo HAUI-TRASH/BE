@@ -63,5 +63,17 @@ public class AiResponseDetailsDTO {
         private String impact;
         private String toxicity;
         private List<String> safeSteps;
+        private List<TrashStepDTO> trashSteps;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class TrashStepDTO {
+        private Long id;
+        private String label;
+        private String labelDisplay;
+        private String imageUrl;
     }
 }

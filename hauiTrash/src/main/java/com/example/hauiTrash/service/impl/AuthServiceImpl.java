@@ -77,6 +77,106 @@ public class AuthServiceImpl implements AuthService {
         // Stateless logout: backend không lưu token, FE tự xoá token
     }
 
+    @Override
+    public AuthResponse loginGoogle(LoginSocialRequest req) {
+        // Sử dụng google userinfo API để dễ dàng lấy profile từ access_token
+        String url = "https://www.googleapis.com/oauth2/v3/userinfo?access_token=" + req.getToken();
+        org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+        try {
+            java.util.Map<String, Object> payload = restTemplate.getForObject(url, java.util.Map.class);
+            if (payload == null || !payload.containsKey("email")) {
+                throw new UnauthorizedException("Google Token không hợp lệ hoặc không có email");
+            }
+            String email = (String) payload.get("email");
+            String name = (String) payload.get("name");
+            String picture = (String) payload.get("picture");
+
+            Account acc = accountRepository.findByEmail(email).orElse(null);
+            if (acc == null) {
+                java.util.Random rnd = new java.util.Random();
+                String fakePhone = "099" + String.format("%07d", rnd.nextInt(10000000));
+                while (accountRepository.existsByPhone(fakePhone)) {
+                    fakePhone = "099" + String.format("%07d", rnd.nextInt(10000000));
+                }
+
+                acc = Account.builder()
+                        .phone(fakePhone)
+                        .email(email)
+                        .fullName(name)
+                        .avatarUrl(picture)
+                        .passwordHash(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
+                        .role(AccountRole.USER)
+                        .isActive(true)
+                        .createdAt(Instant.now())
+                        .updatedAt(Instant.now())
+                        .build();
+                acc = accountRepository.save(acc);
+            }
+
+            if (Boolean.FALSE.equals(acc.getIsActive())) {
+                throw new ForbiddenException("Tài khoản đã bị khóa");
+            }
+            return buildAuthResponse(acc);
+        } catch (Exception e) {
+            throw new UnauthorizedException("Lỗi xác thực Google Token: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public AuthResponse loginFacebook(LoginSocialRequest req) {
+        String url = "https://graph.facebook.com/me?fields=id,name,email,picture.type(large)&access_token=" + req.getToken();
+        org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+        try {
+            java.util.Map<String, Object> payload = restTemplate.getForObject(url, java.util.Map.class);
+            if (payload == null) {
+                throw new UnauthorizedException("Facebook Token không hợp lệ");
+            }
+            
+            String name = (String) payload.get("name");
+            String email = payload.containsKey("email") ? (String) payload.get("email") : payload.get("id") + "@facebook.com";
+            
+            String picture = null;
+            if (payload.containsKey("picture")) {
+                java.util.Map<String, Object> picObj = (java.util.Map<String, Object>) payload.get("picture");
+                if (picObj != null && picObj.containsKey("data")) {
+                    java.util.Map<String, Object> dataObj = (java.util.Map<String, Object>) picObj.get("data");
+                    if (dataObj != null) {
+                        picture = (String) dataObj.get("url");
+                    }
+                }
+            }
+
+            Account acc = accountRepository.findByEmail(email).orElse(null);
+            if (acc == null) {
+                java.util.Random rnd = new java.util.Random();
+                String fakePhone = "099" + String.format("%07d", rnd.nextInt(10000000));
+                while (accountRepository.existsByPhone(fakePhone)) {
+                    fakePhone = "099" + String.format("%07d", rnd.nextInt(10000000));
+                }
+
+                acc = Account.builder()
+                        .phone(fakePhone)
+                        .email(email)
+                        .fullName(name)
+                        .avatarUrl(picture)
+                        .passwordHash(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
+                        .role(AccountRole.USER)
+                        .isActive(true)
+                        .createdAt(Instant.now())
+                        .updatedAt(Instant.now())
+                        .build();
+                acc = accountRepository.save(acc);
+            }
+
+            if (Boolean.FALSE.equals(acc.getIsActive())) {
+                throw new ForbiddenException("Tài khoản đã bị khóa");
+            }
+            return buildAuthResponse(acc);
+        } catch (Exception e) {
+            throw new UnauthorizedException("Lỗi xác thực Facebook Token: " + e.getMessage());
+        }
+    }
+
     private void validateActiveAndPassword(Account acc, String rawPassword) {
         if (Boolean.FALSE.equals(acc.getIsActive())) {
             throw new ForbiddenException("Tài khoản đã bị khóa");

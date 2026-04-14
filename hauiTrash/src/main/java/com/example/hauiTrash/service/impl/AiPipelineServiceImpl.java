@@ -35,6 +35,8 @@ public class AiPipelineServiceImpl implements AiPipelineService {
     @Autowired private ReviewQueueRepository reviewQueueRepo;
     @Autowired private TrashItemAliasRepository trashItemAliasRepo;
 
+    @Autowired private TrashStepRepository trashStepRepo;
+
     @Autowired private YoloClient yoloClient;
     @Autowired private LlmClient llmClient;
 
@@ -113,6 +115,53 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                 : null;
 
         return buildResponseReadOnly_NoLlm(req, annotatedUrl);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<com.example.hauiTrash.dto.HistoryItemDTO> getUserHistory() {
+        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new com.example.hauiTrash.exception.UnauthorizedException("Chưa đăng nhập");
+        }
+        Object principal = auth.getPrincipal();
+        if (!(principal instanceof Account acc)) {
+            throw new com.example.hauiTrash.exception.UnauthorizedException("User không hợp lệ");
+        }
+
+        List<AiRequest> reqs = aiRequestRepo.findHistoryByAccountId(acc.getId());
+        List<com.example.hauiTrash.dto.HistoryItemDTO> res = new ArrayList<>();
+
+        for (AiRequest r : reqs) {
+            com.example.hauiTrash.dto.HistoryItemDTO dto = new com.example.hauiTrash.dto.HistoryItemDTO();
+            dto.setAiRequestId(r.getId());
+            dto.setCreatedAt(r.getCreatedAt());
+            dto.setCloudinaryUrl(r.getCloudinaryUrl());
+
+            if (r.getDetections() != null && !r.getDetections().isEmpty()) {
+                AiResponseDetailsDTO detail = buildResponseReadOnly_NoLlm(r, null);
+                if (detail.getDetections() != null && !detail.getDetections().isEmpty()) {
+                    AiResponseDetailsDTO.DetectionDTO mainDet = detail.getDetections().stream()
+                            .filter(d -> !"NEEDS_CONFIRM".equalsIgnoreCase(d.getStatus()))
+                            .max(Comparator.comparing(AiResponseDetailsDTO.DetectionDTO::getConfidence, Comparator.nullsFirst(Float::compareTo)))
+                            .orElse(detail.getDetections().get(0));
+
+                    dto.setLabelDisplay(mainDet.getLabelDisplay() != null ? mainDet.getLabelDisplay() : "Không xác định");
+                    dto.setTrashType(mainDet.getTrashType() != null && !mainDet.getTrashType().isBlank() ? mainDet.getTrashType() : "Không rõ");
+                    dto.setConfidence(mainDet.getConfidence() != null ? mainDet.getConfidence() : 0f);
+                } else {
+                    dto.setLabelDisplay("Không có");
+                    dto.setTrashType("Không rõ");
+                    dto.setConfidence(0f);
+                }
+            } else {
+                dto.setLabelDisplay("Không nhận diện được");
+                dto.setTrashType("Không rõ");
+                dto.setConfidence(0f);
+            }
+            res.add(dto);
+        }
+        return res;
     }
 
     /**
@@ -872,7 +921,11 @@ public class AiPipelineServiceImpl implements AiPipelineService {
             finalKnowledge = knowledgeRepo.findActiveByTrashItemId(finalItem.getId()).orElse(kn);
         }
 
-        String resolvedLabel = normLabel(det.getLabel());
+        String resolvedLabel = det.getLabel();
+        if (finalItem != null && finalItem.getLabel() != null && !finalItem.getLabel().isBlank()) {
+            resolvedLabel = finalItem.getLabel();
+        }
+        resolvedLabel = normLabel(resolvedLabel);
 
         String resolvedLabelDisplay;
         if (finalItem != null
@@ -884,6 +937,14 @@ public class AiPipelineServiceImpl implements AiPipelineService {
         } else {
             resolvedLabelDisplay = fallbackLabelDisplay(resolvedLabel);
         }
+
+        List<TrashStep> stepsList = trashStepRepo.findByLabelIgnoreCase(resolvedLabel);
+        List<AiResponseDetailsDTO.TrashStepDTO> stepDTOs = stepsList.isEmpty() ? null : stepsList.stream().map(s -> AiResponseDetailsDTO.TrashStepDTO.builder()
+                .id(s.getId())
+                .label(s.getLabel())
+                .labelDisplay(s.getLabelDisplay())
+                .imageUrl(s.getImageUrl())
+                .build()).toList();
 
         return AiResponseDetailsDTO.DetectionDTO.builder()
                 .id(det.getId())
@@ -902,10 +963,11 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                 .material(finalKnowledge != null ? finalKnowledge.getMaterial() : null)
                 .note(finalKnowledge != null ? finalKnowledge.getNote() : null)
                 .action(finalKnowledge != null ? finalKnowledge.getAction() : null)
-                .detail(finalKnowledge == null ? null : AiResponseDetailsDTO.DetailDTO.builder()
-                        .impact(finalKnowledge.getImpact())
-                        .toxicity(finalKnowledge.getToxicity())
-                        .safeSteps(finalKnowledge.getSafeSteps())
+                .detail((finalKnowledge == null && stepDTOs == null) ? null : AiResponseDetailsDTO.DetailDTO.builder()
+                        .impact(finalKnowledge != null ? finalKnowledge.getImpact() : null)
+                        .toxicity(finalKnowledge != null ? finalKnowledge.getToxicity() : null)
+                        .safeSteps(finalKnowledge != null ? finalKnowledge.getSafeSteps() : null)
+                        .trashSteps(stepDTOs)
                         .build())
                 .build();
     }
@@ -1066,7 +1128,11 @@ public class AiPipelineServiceImpl implements AiPipelineService {
             finalKnowledge = knowledgeRepo.findActiveByTrashItemId(finalItem.getId()).orElse(kn);
         }
 
-        String resolvedLabel = normLabel(det.getLabel());
+        String resolvedLabel = det.getLabel();
+        if (finalItem != null && finalItem.getLabel() != null && !finalItem.getLabel().isBlank()) {
+            resolvedLabel = finalItem.getLabel();
+        }
+        resolvedLabel = normLabel(resolvedLabel);
 
         String resolvedLabelDisplay = null;
         if (finalItem != null && finalItem.getLabelDisplay() != null && !finalItem.getLabelDisplay().isBlank()) {
@@ -1076,6 +1142,14 @@ public class AiPipelineServiceImpl implements AiPipelineService {
         } else {
             resolvedLabelDisplay = fallbackLabelDisplay(resolvedLabel);
         }
+
+        List<TrashStep> stepsList = trashStepRepo.findByLabelIgnoreCase(resolvedLabel);
+        List<AiResponseDetailsDTO.TrashStepDTO> stepDTOs = stepsList.isEmpty() ? null : stepsList.stream().map(s -> AiResponseDetailsDTO.TrashStepDTO.builder()
+                .id(s.getId())
+                .label(s.getLabel())
+                .labelDisplay(s.getLabelDisplay())
+                .imageUrl(s.getImageUrl())
+                .build()).toList();
 
         return AiResponseDetailsDTO.DetectionDTO.builder()
                 .id(det.getId())
@@ -1096,10 +1170,11 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                 .material(finalKnowledge != null ? finalKnowledge.getMaterial() : null)
                 .note(finalKnowledge != null ? finalKnowledge.getNote() : null)
                 .action(finalKnowledge != null ? finalKnowledge.getAction() : null)
-                .detail(finalKnowledge == null ? null : AiResponseDetailsDTO.DetailDTO.builder()
-                        .impact(finalKnowledge.getImpact())
-                        .toxicity(finalKnowledge.getToxicity())
-                        .safeSteps(finalKnowledge.getSafeSteps())
+                .detail((finalKnowledge == null && stepDTOs == null) ? null : AiResponseDetailsDTO.DetailDTO.builder()
+                        .impact(finalKnowledge != null ? finalKnowledge.getImpact() : null)
+                        .toxicity(finalKnowledge != null ? finalKnowledge.getToxicity() : null)
+                        .safeSteps(finalKnowledge != null ? finalKnowledge.getSafeSteps() : null)
+                        .trashSteps(stepDTOs)
                         .build())
                 .build();
     }

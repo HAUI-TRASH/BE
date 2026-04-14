@@ -43,6 +43,24 @@ public class AuthController {
           .build());
  }
 
+ @PostMapping("/login/google")
+ public ResponseEntity<ApiResponse<AuthResponse>> loginGoogle(@Valid @RequestBody com.example.hauiTrash.dto.LoginSocialRequest req) {
+  AuthResponse data = authService.loginGoogle(req);
+  return ResponseEntity.ok(ApiResponse.<AuthResponse>builder()
+          .message("Đăng nhập Google thành công")
+          .data(data)
+          .build());
+ }
+
+ @PostMapping("/login/facebook")
+ public ResponseEntity<ApiResponse<AuthResponse>> loginFacebook(@Valid @RequestBody com.example.hauiTrash.dto.LoginSocialRequest req) {
+  AuthResponse data = authService.loginFacebook(req);
+  return ResponseEntity.ok(ApiResponse.<AuthResponse>builder()
+          .message("Đăng nhập Facebook thành công")
+          .data(data)
+          .build());
+ }
+
  @PostMapping("/logout")
  public ResponseEntity<ApiResponse<Object>> logout() {
   authService.logout();
