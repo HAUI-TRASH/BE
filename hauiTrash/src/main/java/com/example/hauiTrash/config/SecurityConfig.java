@@ -60,6 +60,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/login/user").permitAll()
                         .requestMatchers("/api/v1/auth/login/admin").permitAll()
                         .requestMatchers("/api/v1/auth/logout").permitAll()
+                        .requestMatchers("/api/v1/ai_response/realtime").permitAll()
+                        .requestMatchers("/ws/**").permitAll()
 
                         // ---------- ADMIN ----------
                         .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "EDITOR")

@@ -1,6 +1,7 @@
 package com.example.hauiTrash.service.impl;
 
 import com.example.hauiTrash.dto.AiPredictRequestDTO;
+import com.example.hauiTrash.dto.RealtimeDetectionResponse;
 import com.example.hauiTrash.dto.YoloPredictResponseDTO;
 import com.example.hauiTrash.entity.AiRequest;
 import com.example.hauiTrash.entity.Detection;
@@ -15,6 +16,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.multipart.MultipartFile;
+import java.io.IOException;
 import java.util.*;
 
 @Service
@@ -110,6 +116,80 @@ public class AiYoloServiceImpl implements AiYoloService {
         }
 
         return yolo;
+    }
+
+    @Override
+    public RealtimeDetectionResponse detectRealtime(MultipartFile file) {
+        String url = yoloBaseUrl + "/predict-image-json";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        try {
+            body.add("file", new ByteArrayResource(file.getBytes()) {
+                @Override
+                public String getFilename() {
+                    return file.getOriginalFilename();
+                }
+            });
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to read multipart file", e);
+        }
+        body.add("conf", 0.5f); // Ngưỡng confidence mặc định cho realtime
+        body.add("iou", 0.45f);
+
+        HttpEntity<MultiValueMap<String, Object>> entity = new HttpEntity<>(body, headers);
+        ResponseEntity<YoloPredictResponseDTO> resp = restTemplate.exchange(
+                url, HttpMethod.POST, entity, YoloPredictResponseDTO.class);
+        return extractOptimalDetection(resp);
+    }
+
+    @Override
+    public RealtimeDetectionResponse detectRealtime(byte[] imageBytes) {
+        String url = yoloBaseUrl + "/predict-image-json";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("file", new ByteArrayResource(imageBytes) {
+            @Override
+            public String getFilename() {
+                return "frame.jpg"; 
+            }
+        });
+        body.add("conf", 0.5f); 
+        body.add("iou", 0.45f);
+
+        HttpEntity<MultiValueMap<String, Object>> entity = new HttpEntity<>(body, headers);
+        ResponseEntity<YoloPredictResponseDTO> resp = restTemplate.exchange(
+                url, HttpMethod.POST, entity, YoloPredictResponseDTO.class);
+        return extractOptimalDetection(resp);
+    }
+
+    private RealtimeDetectionResponse extractOptimalDetection(ResponseEntity<YoloPredictResponseDTO> resp) {
+        YoloPredictResponseDTO yolo = resp.getBody();
+        if (yolo == null || yolo.getDetections() == null || yolo.getDetections().isEmpty()) {
+            return null;
+        }
+
+        // Lấy kết quả có độ tin cậy cao nhất
+        YoloPredictResponseDTO.DetectionDTO best = yolo.getDetections().stream()
+                .max(Comparator.comparing(YoloPredictResponseDTO.DetectionDTO::getConfidence))
+                .orElse(null);
+
+        if (best == null) return null;
+
+        return RealtimeDetectionResponse.builder()
+                .label(normalizeLabel(best.getLabel()))
+                .labelDisplay(best.getLabelDisplay() != null ? best.getLabelDisplay() : normalizeLabel(best.getLabel()))
+                .confidence(best.getConfidence())
+                .x1(best.getX1())
+                .y1(best.getY1())
+                .x2(best.getX2())
+                .y2(best.getY2())
+                .build();
     }
 
     private String normalizeLabel(String label) {
