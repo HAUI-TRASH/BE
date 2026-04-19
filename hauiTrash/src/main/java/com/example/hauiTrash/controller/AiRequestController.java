@@ -20,7 +20,8 @@ public class AiRequestController {
     @Autowired
     private AiRequestService aiRequestService;
 
-    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)    public ResponseEntity<AiRequestCreateResponseDTO> createAiRequest(
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<AiRequestCreateResponseDTO> createAiRequest(
             @RequestParam("file") MultipartFile file    ) {
         String cloudinaryUrl = cloudinaryService.uploadImage(file);
 
