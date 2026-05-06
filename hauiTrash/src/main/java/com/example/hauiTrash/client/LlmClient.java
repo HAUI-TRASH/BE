@@ -64,4 +64,10 @@ public interface LlmClient {
 
     Map<String, String> generateLabelDisplayBatch(List<String> labels);
     GeminiTrashItemResult generateTrashItem(String userInput);
+
+    // ====== RAG: Embedding ======
+    float[] embedText(String text);
+
+    // ====== RAG: Augmented Generation ======
+    KnowledgeGenResult generateAugmentedKnowledge(String label, String labelDisplay, String trashTypeName, List<String> retrievedContexts);
 }

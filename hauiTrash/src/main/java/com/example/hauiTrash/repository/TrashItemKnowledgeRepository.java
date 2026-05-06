@@ -26,5 +26,16 @@ public interface TrashItemKnowledgeRepository extends JpaRepository<TrashItemKno
     @Modifying
     @Query("update TrashItemKnowledge k set k.isActive=false where k.trashItem.id=:itemId and k.isActive=true")
     int deactivateAll(@Param("itemId") Integer itemId);
-    
+
+    /**
+     * RAG: Load all active knowledge with embeddings for similarity search.
+     */
+    @Query("select k from TrashItemKnowledge k join fetch k.trashItem where k.isActive = true and k.embeddingJson is not null")
+    List<TrashItemKnowledge> findAllActiveWithEmbeddings();
+
+    /**
+     * RAG: Load all active knowledge (for embedding rebuild).
+     */
+    @Query("select k from TrashItemKnowledge k join fetch k.trashItem where k.isActive = true")
+    List<TrashItemKnowledge> findAllActive();
 }

@@ -11,4 +11,5 @@ public class GeminiProperties {
     private String baseUrl;
     private double temperature = 0.2;
     private int timeoutSeconds = 20;
+    private String embeddingModel = "text-embedding-004";
 }

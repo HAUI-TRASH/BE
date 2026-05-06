@@ -65,6 +65,7 @@ public class SecurityConfig {
 
                         // ---------- ADMIN ----------
                         .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "EDITOR")
+                        .requestMatchers("/api/admin/rag/**").permitAll() // RAG admin - TODO: secure in production
 
                         // ---------- USER (BẮT BUỘC LOGIN) ----------
                         .requestMatchers("/api/v1/user/**").authenticated()

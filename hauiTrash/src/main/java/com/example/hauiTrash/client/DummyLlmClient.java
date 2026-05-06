@@ -92,4 +92,15 @@ public class DummyLlmClient implements LlmClient {
     public GeminiTrashItemResult generateTrashItem(String userInput) {
         return null;
     }
+
+    @Override
+    public float[] embedText(String text) {
+        return new float[0]; // dummy: no embedding
+    }
+
+    @Override
+    public KnowledgeGenResult generateAugmentedKnowledge(String label, String labelDisplay, String trashTypeName, List<String> retrievedContexts) {
+        // dummy: delegate to basic knowledge generation
+        return generateKnowledge(label, labelDisplay, trashTypeName);
+    }
 }
