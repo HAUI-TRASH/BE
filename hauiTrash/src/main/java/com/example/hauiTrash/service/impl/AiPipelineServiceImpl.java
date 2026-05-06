@@ -9,10 +9,12 @@ import com.example.hauiTrash.dto.YoloPredictResponseDTO;
 import com.example.hauiTrash.entity.*;
 import com.example.hauiTrash.repository.*;
 import com.example.hauiTrash.service.AiPipelineService;
+import com.example.hauiTrash.service.RagService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
 
 import java.time.Instant;
 import java.util.*;
@@ -39,6 +41,7 @@ public class AiPipelineServiceImpl implements AiPipelineService {
 
     @Autowired private YoloClient yoloClient;
     @Autowired private LlmClient llmClient;
+    @Autowired private RagService ragService;
 
     private static final float DEFAULT_CONF = 0.25f;
     private static final float DEFAULT_IOU = 0.60f;
@@ -376,52 +379,41 @@ public class AiPipelineServiceImpl implements AiPipelineService {
     }
 
     /**
-     * Visual RAG mới:
-     * 1. ưu tiên cropUrl (định hướng visual retrieval)
-     * 2. fallback về label-text retrieval
-     * 3. dominantLabel truyền vào để có thể ưu tiên logic sau này
+     * RAG Pipeline:
+     * 1. Embed query (label + labelDisplay) via Gemini text-embedding-004
+     * 2. Cosine similarity search against pre-computed knowledge embeddings
+     * 3. Top-K retrieved contexts → Gemini LLM → Augmented Knowledge
+     * 4. Fallback to exact DB match if semantic search fails
      */
-    @Transactional(readOnly = true)
+    @Transactional
     protected VisualRagResult retrieveVisualRag(Detection det, String label, String dominantLabel) {
-        // B1: thử retrieval theo crop
-        VisualRagResult cropBased = retrieveVisualRagByCrop(det != null ? det.getCropUrl() : null, label, dominantLabel);
-        if (cropBased != null) {
-            return cropBased;
+        String labelDisplay = det != null ? det.getLabelDisplay() : null;
+        String cropUrl = det != null ? det.getCropUrl() : null;
+
+        // Use RAG Service for semantic retrieval + augmented generation
+        try {
+            VisualRagResult ragResult = ragService.retrieve(label, labelDisplay, cropUrl);
+            if (ragResult != null) {
+                log.info("RAG retrieval success: label={} source={} score={}",
+                        label,
+                        ragResult.getRagSource(),
+                        ragResult.getRagSimilarityScore());
+                return ragResult;
+            }
+        } catch (Exception e) {
+            log.warn("RAG retrieval failed, falling back to DB: label={} error={}", label, e.getMessage());
         }
 
-        // B2: fallback label retrieval như cũ
-        return retrieveVisualRagByLabel(label);
+        // Ultimate fallback: exact DB match
+        return fallbackDbRetrieval(label);
     }
 
     /**
-     * Chỗ này hiện là stub/fallback để sau này bạn thay bằng:
-     * - gọi embedding service
-     * - tìm item gần nhất theo visual similarity
-     * - rồi lấy knowledge/mapping tương ứng
-     *
-     * Tạm thời:
-     * - nếu có cropUrl thì vẫn ưu tiên alias/item của label hiện tại
-     * - dominantLabel chỉ là tín hiệu bổ sung cho note / mở rộng sau
+     * Fallback: exact SQL match (old behavior before RAG).
      */
     @Transactional(readOnly = true)
-    protected VisualRagResult retrieveVisualRagByCrop(String cropUrl, String label, String dominantLabel) {
-        if (cropUrl == null || cropUrl.isBlank()) {
-            return null;
-        }
-
-        // TODO:
-        // 1) Gọi visual embedding service bằng cropUrl
-        // 2) Tìm trash item gần nhất theo similarity
-        // 3) Nếu similarity đủ ngưỡng thì return item đó
-        // Hiện tại fallback mềm về label retrieval
-        return retrieveVisualRagByLabel(label);
-    }
-
-    @Transactional(readOnly = true)
-    protected VisualRagResult retrieveVisualRagByLabel(String label) {
-        if (label == null || label.isBlank()) {
-            return null;
-        }
+    protected VisualRagResult fallbackDbRetrieval(String label) {
+        if (label == null || label.isBlank()) return null;
 
         String normalized = normLabel(label);
 
@@ -429,9 +421,7 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                 .map(TrashItemAlias::getTrashItem)
                 .orElseGet(() -> trashItemRepo.findByLabel(normalized).orElse(null));
 
-        if (item == null) {
-            return null;
-        }
+        if (item == null) return null;
 
         TrashItemMapping mapping = mappingRepo.findActiveByTrashItemId(item.getId()).orElse(null);
         TrashItemKnowledge knowledge = knowledgeRepo.findActiveByTrashItemId(item.getId()).orElse(null);
@@ -441,11 +431,14 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                 .trashType(mapping != null ? mapping.getTrashType() : null)
                 .knowledge(knowledge)
                 .mappingConfidence(mapping != null ? mapping.getMappingConfidence() : null)
+                .ragSource("FALLBACK_DB")
                 .build();
     }
 
+    private static final Logger log = org.slf4j.LoggerFactory.getLogger(AiPipelineServiceImpl.class);
+
     protected String buildRagNote(String effectiveGroupLabel, String dominantLabel, String cropUrl) {
-        StringBuilder sb = new StringBuilder("Auto classified by Visual RAG");
+        StringBuilder sb = new StringBuilder("Auto classified by RAG");
         if (effectiveGroupLabel != null) {
             sb.append(" | groupLabel=").append(effectiveGroupLabel);
         }
@@ -455,7 +448,7 @@ public class AiPipelineServiceImpl implements AiPipelineService {
         if (cropUrl != null && !cropUrl.isBlank()) {
             sb.append(" | retrieval=crop-first");
         } else {
-            sb.append(" | retrieval=label-fallback");
+            sb.append(" | retrieval=semantic");
         }
         return sb.toString();
     }
