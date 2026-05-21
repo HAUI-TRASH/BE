@@ -29,7 +29,6 @@ public class PointController {
         return (Account) auth.getPrincipal();
     }
 
-    // GET /api/v1/points/me
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<UserPointsDTO>> getMyPoints() {
         Account account = getCurrentAccount();
@@ -40,7 +39,6 @@ public class PointController {
                 .build());
     }
 
-    // GET /api/v1/points/history
     @GetMapping("/history")
     public ResponseEntity<ApiResponse<List<PointHistoryDTO>>> getMyHistory() {
         Account account = getCurrentAccount();
