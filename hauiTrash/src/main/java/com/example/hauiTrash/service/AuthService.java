@@ -9,4 +9,5 @@ public interface AuthService {
     AuthResponse loginGoogle(LoginSocialRequest request);
     AuthResponse loginFacebook(LoginSocialRequest request);
     void logout(); // stateless
+    AccountInfo getCurrentUser();
 }

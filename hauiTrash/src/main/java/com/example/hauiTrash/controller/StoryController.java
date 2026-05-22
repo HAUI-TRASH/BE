@@ -3,6 +3,7 @@ package com.example.hauiTrash.controller;
 import com.example.hauiTrash.dto.ApiResponse;
 import com.example.hauiTrash.dto.StoryDetailDTO;
 import com.example.hauiTrash.dto.StoryListDTO;
+import com.example.hauiTrash.entity.StoryCategory;
 import com.example.hauiTrash.service.StoryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -23,7 +24,7 @@ public class StoryController {
     public ResponseEntity<ApiResponse<List<StoryListDTO>>> getStories(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam(required = false) String category
+            @RequestParam(required = false) StoryCategory category
     ) {
         List<StoryListDTO> stories = storyService.getPublishedStories(category, PageRequest.of(page, size));
         return ResponseEntity.ok(ApiResponse.<List<StoryListDTO>>builder()

@@ -26,9 +26,9 @@ public class Story {
 
     @Column(name = "thumbnail_url", length = 1000)
     private String thumbnailUrl;
-
+    @Enumerated(EnumType.STRING)
     @Column(length = 50)
-    private String category;
+    private StoryCategory category;
 
     @Column(name = "view_count")
     private Integer viewCount;

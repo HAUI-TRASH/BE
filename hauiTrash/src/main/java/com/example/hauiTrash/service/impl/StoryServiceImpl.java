@@ -4,6 +4,7 @@ import com.example.hauiTrash.dto.StoryDetailDTO;
 import com.example.hauiTrash.dto.StoryListDTO;
 import com.example.hauiTrash.entity.Account;
 import com.example.hauiTrash.entity.Story;
+import com.example.hauiTrash.entity.StoryCategory;
 import com.example.hauiTrash.repository.AccountRepository;
 import com.example.hauiTrash.repository.StoryRepository;
 import com.example.hauiTrash.service.PointService;
@@ -22,18 +23,15 @@ public class StoryServiceImpl implements StoryService {
 
     private final StoryRepository storyRepository;
     private final PointService pointService;
-
-
-
     @Override
     @Transactional(readOnly = true)
-    public List<StoryListDTO> getPublishedStories(String category, Pageable pageable) {
-        List<Story> stories;
-        if (category != null && !category.isBlank()) {
-            stories = storyRepository.findByCategory(category, pageable);
-        } else {
-            stories = storyRepository.findAllPublished(pageable);
+    public List<StoryListDTO> getPublishedStories(StoryCategory category, Pageable pageable) {
+
+        // Nếu không có chọn category, dùng mặc định
+        if (category == null ) {
+            category = StoryCategory.TIPS;
         }
+        List<Story> stories = storyRepository.findByCategory(category, pageable);
         return stories.stream().map(this::toListDTO).collect(Collectors.toList());
     }
 
@@ -59,7 +57,7 @@ public class StoryServiceImpl implements StoryService {
                 .title(story.getTitle())
                 .slug(story.getSlug())
                 .thumbnailUrl(story.getThumbnailUrl())
-                .category(story.getCategory())
+                .category(story.getCategory().name())
                 .viewCount(story.getViewCount())
                 .publishedAt(story.getPublishedAt())
                 .build();
@@ -72,7 +70,7 @@ public class StoryServiceImpl implements StoryService {
                 .slug(story.getSlug())
                 .content(story.getContent())
                 .thumbnailUrl(story.getThumbnailUrl())
-                .category(story.getCategory())
+                .category(story.getCategory().name())
                 .viewCount(story.getViewCount())
                 .publishedAt(story.getPublishedAt())
                 .build();

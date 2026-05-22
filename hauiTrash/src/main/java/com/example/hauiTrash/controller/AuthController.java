@@ -1,9 +1,6 @@
 package com.example.hauiTrash.controller;
 
-import com.example.hauiTrash.dto.ApiResponse;
-import com.example.hauiTrash.dto.AuthResponse;
-import com.example.hauiTrash.dto.LoginRequest;
-import com.example.hauiTrash.dto.RegisterRequest;
+import com.example.hauiTrash.dto.*;
 import com.example.hauiTrash.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,6 +65,16 @@ public class AuthController {
           .message("Đăng xuất thành công")
           .data(null)
           .build());
+ }
+ @GetMapping("/me")
+ public ResponseEntity<ApiResponse<AccountInfo>> getCurrentUser() {
+  AccountInfo accountInfo = authService.getCurrentUser();
+     return ResponseEntity.ok(
+             ApiResponse.<AccountInfo>builder()
+                     .message("Lấy thông tin thành công")
+                     .data(accountInfo)
+                     .build()
+     );
  }
 }
 

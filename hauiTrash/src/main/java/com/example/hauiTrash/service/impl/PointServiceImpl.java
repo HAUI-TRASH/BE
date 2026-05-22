@@ -3,6 +3,7 @@ package com.example.hauiTrash.service.impl;
 import com.example.hauiTrash.dto.LeaderboardDTO;
 import com.example.hauiTrash.dto.PointHistoryDTO;
 import com.example.hauiTrash.dto.UserPointsDTO;
+import com.example.hauiTrash.entity.Account;
 import com.example.hauiTrash.entity.PointActionType;
 import com.example.hauiTrash.entity.PointHistory;
 import com.example.hauiTrash.entity.UserPoints;
@@ -12,6 +13,8 @@ import com.example.hauiTrash.repository.UserPointsRepository;
 import com.example.hauiTrash.service.PointService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,7 +31,13 @@ public class PointServiceImpl implements PointService {
     private final AccountRepository accountRepository;
 
     private static final int LEVEL_UP_POINTS = 100; // 100 điểm = 1 level
-
+    @Override
+    public UserPointsDTO getMyPoints() {
+        // Lấy trực tiếp từ JwtFilter
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        Account account = (Account) auth.getPrincipal();
+        return getUserPoints(account.getId());
+    }
     @Override
     @Transactional(readOnly = true)
     public UserPointsDTO getUserPoints(Integer accountId) {
@@ -36,20 +45,13 @@ public class PointServiceImpl implements PointService {
                 .orElse(UserPoints.builder()
                         .accountId(accountId)
                         .totalPoints(0)
-                        .level(1)
                         .build());
 
-        int nextLevelThreshold = up.getLevel() * LEVEL_UP_POINTS;
-        int pointsToNextLevel = Math.max(0, nextLevelThreshold - up.getTotalPoints());
 
         return UserPointsDTO.builder()
                 .totalPoints(up.getTotalPoints())
-                .level(up.getLevel())
-                .pointsToNextLevel(pointsToNextLevel)
-                .nextLevelThreshold(nextLevelThreshold)
                 .build();
     }
-
     @Override
     @Transactional(readOnly = true)
     public List<PointHistoryDTO> getPointHistory(Integer accountId) {
@@ -73,7 +75,6 @@ public class PointServiceImpl implements PointService {
                     .fullName(account != null ? account.getFullName() : "Unknown")
                     .avatarUrl(account != null ? account.getAvatarUrl() : null)
                     .totalPoints(up.getTotalPoints())
-                    .level(up.getLevel())
                     .build());
         }
         return result;
@@ -115,16 +116,11 @@ public class PointServiceImpl implements PointService {
                 .orElse(UserPoints.builder()
                         .accountId(accountId)
                         .totalPoints(0)
-                        .level(1)
                         .build());
 
         int newTotal = up.getTotalPoints() + pointsToAdd;
-        int newLevel = (newTotal / LEVEL_UP_POINTS) + 1;
-
         up.setTotalPoints(newTotal);
-        up.setLevel(newLevel);
         up.setUpdatedAt(Instant.now());
-
         userPointsRepository.save(up);
     }
 

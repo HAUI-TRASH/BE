@@ -54,18 +54,15 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                         // ---------- PUBLIC ----------
-                        .requestMatchers("/api/v1/auth/register").permitAll()
-                        .requestMatchers("/api/v1/auth/login/google").permitAll()
-                        .requestMatchers("/api/v1/auth/login/facebook").permitAll()
-                        .requestMatchers("/api/v1/auth/login/user").permitAll()
-                        .requestMatchers("/api/v1/auth/login/admin").permitAll()
-                        .requestMatchers("/api/v1/auth/logout").permitAll()
+                        .requestMatchers("/api/v1/auth/**").permitAll()
+                        .requestMatchers("/api/v1/stories/**").permitAll()
 
                         // ---------- ADMIN ----------
                         .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "EDITOR")
 
                         // ---------- USER (BẮT BUỘC LOGIN) ----------
                         .requestMatchers("/api/v1/user/**").authenticated()
+                        .requestMatchers("/api/v1/points").authenticated()
 
 
                         // ---------- ALL OTHER ----------

@@ -17,19 +17,14 @@ public class UserPoints {
     @Column(name = "total_points")
     private Integer totalPoints;
 
-    @Column(name = "level")
-    private Integer level;
-
     @Column(name = "updated_at")
     private Instant updatedAt;
 
     @PrePersist
     void prePersist() {
         if (totalPoints == null) totalPoints = 0;
-        if (level == null) level = 1;
         updatedAt = Instant.now();
     }
-
     @PreUpdate
     void preUpdate() {
         updatedAt = Instant.now();
