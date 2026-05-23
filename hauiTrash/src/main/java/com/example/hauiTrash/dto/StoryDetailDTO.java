@@ -3,6 +3,8 @@ package com.example.hauiTrash.dto;
 import lombok.Builder;
 import lombok.Data;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Data
 @Builder
@@ -14,5 +16,5 @@ public class StoryDetailDTO {
     private String thumbnailUrl;
     private String category;
     private Integer viewCount;
-    private Instant publishedAt;
+    private LocalDateTime publishedAt;
 }

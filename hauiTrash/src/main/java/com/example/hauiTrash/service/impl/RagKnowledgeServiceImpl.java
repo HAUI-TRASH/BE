@@ -55,7 +55,6 @@ public class RagKnowledgeServiceImpl implements RagKnowledgeService {
                     .map(this::convertToDTO)
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
-
         } catch (Exception e) {
             log.error("Failed to find similar knowledge for query: {}", query, e);
             return List.of();

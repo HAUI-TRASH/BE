@@ -27,14 +27,14 @@ import java.util.*;
 @RequiredArgsConstructor
 public class AiYoloServiceImpl implements AiYoloService {
 
-    @Autowired
-    private RestTemplate restTemplate;
 
-    @Autowired
-    private AiRequestRepository aiRequestRepo;
+    private final RestTemplate restTemplate;
 
-    @Autowired
-    private DetectionRepository detectionRepo;
+
+    private final AiRequestRepository aiRequestRepo;
+
+
+    private final DetectionRepository detectionRepo;
 
     @Value("${ai.yolo.base-url:http://127.0.0.1:8000}")
     private String yoloBaseUrl;

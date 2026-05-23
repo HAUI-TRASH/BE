@@ -11,5 +11,5 @@ public class LeaderboardDTO {
     private String fullName;
     private String avatarUrl;
     private Integer totalPoints;
-    private Integer level;
+    private String rankDisplayName;
 }

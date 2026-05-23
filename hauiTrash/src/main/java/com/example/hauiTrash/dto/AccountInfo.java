@@ -1,5 +1,6 @@
 package com.example.hauiTrash.dto;
 
+import com.example.hauiTrash.entity.UserRank;
 import lombok.Builder;
 import lombok.Data;
 
@@ -11,4 +12,7 @@ public class AccountInfo {
     private String phone;
     private String email;
     private String role;
+    private Integer totalPoints;
+    private UserRank rank;
+    private String rankDisplayName;
 }

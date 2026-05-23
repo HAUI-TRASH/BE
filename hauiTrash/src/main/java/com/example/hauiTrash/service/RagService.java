@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -328,7 +329,7 @@ public class RagService {
                 float[] embedding = llmClient.embedText(text);
                 if (embedding.length > 0) {
                     k.setEmbeddingJson(toFloatList(embedding));
-                    k.setUpdatedAt(Instant.now());
+                    k.setUpdatedAt(LocalDateTime.now());
                     knowledgeRepo.save(k);
 
                     // Update cache

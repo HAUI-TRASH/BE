@@ -1,19 +1,41 @@
 package com.example.hauiTrash.entity;
 
-import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
+import java.util.List;
 
 @Getter
-@AllArgsConstructor
+@RequiredArgsConstructor
 public enum PointActionType {
-    DETECTION(10),           // Phát hiện 1 loại rác mới
-    DETECTION_MULTI(5),      // Mỗi object trong 1 request (tối đa 30)
-    SHARE_RESULT(15),        // Chia sẻ kết quả
-    LEARN_STORY(20),         // Đọc 1 câu chuyện
-    COMPLETE_CHALLENGE(50),  // Hoàn thành thử thách
-    DAILY_LOGIN(5);          // Đăng nhập mỗi ngày
+
+    DETECTION_PLASTIC(5, List.of("plastic", "bottle", "cup", "bag", "nhựa")),
+    DETECTION_PAPER(5, List.of("paper", "cardboard", "box", "newspaper", "giấy")),
+    DETECTION_GLASS(5, List.of("glass", "jar", "chai", "ly", "thủy tinh")),
+    DETECTION_METAL(5, List.of("metal", "can", "aluminum", "tin", "kim loại")),
+
+    DETECTION_MULTI(5, null);  // Bonus cho nhiều object
 
     private final int points;
+    private final List<String> keywords;
 
+    /**
+     * Tìm PointActionType từ label của YOLO
+     */
+    public static PointActionType fromLabel(String label) {
+        if (label == null) return null;
 
+        String lowerLabel = label.toLowerCase();
+
+        for (PointActionType type : values()) {
+            if (type.keywords != null) {
+                for (String keyword : type.keywords) {
+                    if (lowerLabel.contains(keyword)) {
+                        return type;
+                    }
+                }
+            }
+        }
+        return null;
+    }
 }

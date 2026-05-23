@@ -4,6 +4,7 @@ package com.example.hauiTrash.service.impl;
 import com.cloudinary.Cloudinary;
 import com.cloudinary.utils.ObjectUtils;
 import com.example.hauiTrash.service.CloudinaryService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -14,16 +15,9 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.Map;
 
 @Service
-
+@RequiredArgsConstructor
 public class CloudinaryServiceImpl implements CloudinaryService {
-    @Autowired
-    private  Cloudinary cloudinary;
-
-    public CloudinaryServiceImpl(Cloudinary cloudinary) {
-        this.cloudinary = cloudinary;
-    }
-
-
+    private final Cloudinary cloudinary;
     @Override
     public String uploadImage(MultipartFile file) {
         try {

@@ -11,5 +11,6 @@ public interface PointService {
     UserPointsDTO getUserPoints(Integer accountId);
     List<PointHistoryDTO> getPointHistory(Integer accountId);
     List<LeaderboardDTO> getLeaderboard(Pageable pageable);
+    List<PointHistoryDTO> getMyPointHistory();
     void addPoints(Integer accountId, String actionType, String referenceId, String description);
 }

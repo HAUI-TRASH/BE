@@ -3,6 +3,7 @@ package com.example.hauiTrash.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.Instant;
+import java.time.LocalDateTime;
 
 @Getter @Setter
 @NoArgsConstructor @AllArgsConstructor
@@ -30,10 +31,10 @@ public class PointHistory {
     private String description;
 
     @Column(name = "created_at")
-    private Instant createdAt;
+    private LocalDateTime createdAt;
 
     @PrePersist
     void prePersist() {
-        createdAt = Instant.now();
+        createdAt = LocalDateTime.now();
     }
 }

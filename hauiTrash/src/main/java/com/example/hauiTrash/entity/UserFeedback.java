@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 
 @Entity
 @Getter
@@ -64,10 +65,10 @@ public class UserFeedback {
     private Float alternativeConfidence;
 
     @Column(name = "created_at")
-    private Instant createdAt;
+    private LocalDateTime createdAt;
 
     @PrePersist
     void prePersist() {
-        createdAt = Instant.now();
+        createdAt = LocalDateTime.now();
     }
 }

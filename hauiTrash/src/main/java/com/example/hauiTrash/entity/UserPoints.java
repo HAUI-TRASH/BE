@@ -3,6 +3,7 @@ package com.example.hauiTrash.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.Instant;
+import java.time.LocalDateTime;
 
 @Getter @Setter
 @NoArgsConstructor @AllArgsConstructor
@@ -18,15 +19,15 @@ public class UserPoints {
     private Integer totalPoints;
 
     @Column(name = "updated_at")
-    private Instant updatedAt;
+    private LocalDateTime updatedAt;
 
     @PrePersist
     void prePersist() {
         if (totalPoints == null) totalPoints = 0;
-        updatedAt = Instant.now();
+        updatedAt = LocalDateTime.now();
     }
     @PreUpdate
     void preUpdate() {
-        updatedAt = Instant.now();
+        updatedAt = LocalDateTime.now();
     }
 }

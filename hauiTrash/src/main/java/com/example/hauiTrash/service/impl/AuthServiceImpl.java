@@ -9,6 +9,7 @@ import com.example.hauiTrash.exception.UnauthorizedException;
 import com.example.hauiTrash.repository.AccountRepository;
 import com.example.hauiTrash.security.JwtUtil;
 import com.example.hauiTrash.service.AuthService;
+import com.example.hauiTrash.service.PointService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -16,6 +17,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -23,6 +25,7 @@ public class AuthServiceImpl implements AuthService {
     private final AccountRepository accountRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final PointService  pointService;
     @Override
     public AuthResponse registerUser(RegisterRequest req) {
         if (req.getPhone() == null || !req.getPhone().matches("^0\\d{9,10}$")) {
@@ -37,15 +40,13 @@ public class AuthServiceImpl implements AuthService {
                 .passwordHash(passwordEncoder.encode(req.getPassword()))
                 .fullName(req.getFullName())
                 .role(AccountRole.USER)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
                 .isActive(true)
-                .createdAt(Instant.now())
-                .updatedAt(Instant.now())
                 .build();
-
         acc = accountRepository.save(acc);
         return buildAuthResponse(acc);
     }
-
     @Override
     public AccountInfo getCurrentUser() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -55,12 +56,16 @@ public class AuthServiceImpl implements AuthService {
         if (!(auth.getPrincipal() instanceof Account account)) {
             throw new UnauthorizedException("Thông tin đăng nhập không hợp lệ");// lấy từ context luôn
         }
+        UserPointsDTO points = pointService.getUserPoints(account.getId());
         return AccountInfo.builder()
                 .id(account.getId())
                 .fullName(account.getFullName())
                 .phone(account.getPhone())
                 .email(account.getEmail())
                 .role(account.getRole().name())
+                .totalPoints(points.getTotalPoints())
+                .rank(points.getRank())
+                .rankDisplayName(points.getRankDisplayName())
                 .build();
     }
     @Override
@@ -108,8 +113,8 @@ public class AuthServiceImpl implements AuthService {
                         .passwordHash(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
                         .role(AccountRole.USER)
                         .isActive(true)
-                        .createdAt(Instant.now())
-                        .updatedAt(Instant.now())
+                        .createdAt(LocalDateTime.now())
+                        .updatedAt(LocalDateTime.now())
                         .build();
                 acc = accountRepository.save(acc);
             }
@@ -162,8 +167,8 @@ public class AuthServiceImpl implements AuthService {
                         .passwordHash(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
                         .role(AccountRole.USER)
                         .isActive(true)
-                        .createdAt(Instant.now())
-                        .updatedAt(Instant.now())
+                        .createdAt(LocalDateTime.now())
+                        .updatedAt(LocalDateTime.now())
                         .build();
                 acc = accountRepository.save(acc);
             }

@@ -5,6 +5,7 @@ import com.example.hauiTrash.dto.StoryDetailDTO;
 import com.example.hauiTrash.dto.StoryListDTO;
 import com.example.hauiTrash.entity.StoryCategory;
 import com.example.hauiTrash.service.StoryService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
@@ -34,8 +35,8 @@ public class StoryController {
     }
 
     @GetMapping("/{slug}")
-    public ResponseEntity<ApiResponse<StoryDetailDTO>> getStoryDetail(@PathVariable String slug) {
-        StoryDetailDTO story = storyService.getStoryBySlug(slug);
+    public ResponseEntity<ApiResponse<StoryDetailDTO>> getStoryDetail(@PathVariable String slug, HttpServletRequest request) {
+        StoryDetailDTO story = storyService.getStoryBySlug(slug,request);
         return ResponseEntity.ok(ApiResponse.<StoryDetailDTO>builder()
                 .message("Lấy chi tiết câu chuyện thành công")
                 .data(story)

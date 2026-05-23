@@ -3,15 +3,13 @@ package com.example.hauiTrash.service.impl;
 import com.example.hauiTrash.dto.LeaderboardDTO;
 import com.example.hauiTrash.dto.PointHistoryDTO;
 import com.example.hauiTrash.dto.UserPointsDTO;
-import com.example.hauiTrash.entity.Account;
-import com.example.hauiTrash.entity.PointActionType;
-import com.example.hauiTrash.entity.PointHistory;
-import com.example.hauiTrash.entity.UserPoints;
+import com.example.hauiTrash.entity.*;
 import com.example.hauiTrash.repository.AccountRepository;
 import com.example.hauiTrash.repository.PointHistoryRepository;
 import com.example.hauiTrash.repository.UserPointsRepository;
 import com.example.hauiTrash.service.PointService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -19,10 +17,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class PointServiceImpl implements PointService {
 
@@ -46,10 +46,12 @@ public class PointServiceImpl implements PointService {
                         .accountId(accountId)
                         .totalPoints(0)
                         .build());
-
-
+        int totalPoints = up.getTotalPoints();
+        UserRank rank = UserRank.fromPoints(totalPoints);
         return UserPointsDTO.builder()
-                .totalPoints(up.getTotalPoints())
+                .totalPoints(totalPoints)
+                .rank(rank)
+                .rankDisplayName(rank.getDisplayName())
                 .build();
     }
     @Override
@@ -69,12 +71,14 @@ public class PointServiceImpl implements PointService {
         int rank = 1;
         for (UserPoints up : topUsers) {
             var account = accountRepository.findById(up.getAccountId()).orElse(null);
+            UserRank userRank = UserRank.fromPoints(up.getTotalPoints());
             result.add(LeaderboardDTO.builder()
                     .rank(rank++)
                     .accountId(up.getAccountId())
                     .fullName(account != null ? account.getFullName() : "Unknown")
                     .avatarUrl(account != null ? account.getAvatarUrl() : null)
                     .totalPoints(up.getTotalPoints())
+                    .rankDisplayName(userRank.getDisplayName())
                     .build());
         }
         return result;
@@ -83,35 +87,36 @@ public class PointServiceImpl implements PointService {
     @Override
     @Transactional
     public void addPoints(Integer accountId, String actionType, String referenceId, String description) {
+        // 1. Xác định hành động và số điểm
         PointActionType action;
         try {
             action = PointActionType.valueOf(actionType);
         } catch (IllegalArgumentException e) {
+            log.warn("Invalid action type: {}", actionType);
             return;
         }
-
         int pointsToAdd = action.getPoints();
-
-        // Kiểm tra duplicate (ví dụ: không nhận 2 lần cho cùng 1 story)
+        // 2. Kiểm tra duplicate (tránh cộng 2 lần cho cùng 1 detection)
         if (referenceId != null) {
             boolean exists = pointHistoryRepository.existsByAccountIdAndActionTypeAndReferenceId(
                     accountId, actionType, referenceId);
             if (exists) {
+                log.debug("Already added points for accountId: {}, action: {}, referenceId: {}",
+                        accountId, actionType, referenceId);
                 return;
             }
         }
-
-        // Lưu lịch sử
+        // 3. Lưu lịch sử cộng điểm
         PointHistory history = PointHistory.builder()
                 .accountId(accountId)
                 .points(pointsToAdd)
                 .actionType(actionType)
                 .referenceId(referenceId)
                 .description(description)
+                .createdAt(LocalDateTime.now())
                 .build();
         pointHistoryRepository.save(history);
-
-        // Cập nhật hoặc tạo mới UserPoints
+        // 4. Cập nhật hoặc tạo mới UserPoints
         UserPoints up = userPointsRepository.findByAccountId(accountId)
                 .orElse(UserPoints.builder()
                         .accountId(accountId)
@@ -120,10 +125,18 @@ public class PointServiceImpl implements PointService {
 
         int newTotal = up.getTotalPoints() + pointsToAdd;
         up.setTotalPoints(newTotal);
-        up.setUpdatedAt(Instant.now());
+        up.setUpdatedAt(LocalDateTime.now());
         userPointsRepository.save(up);
-    }
 
+        log.info("Added {} points to accountId: {}, action: {}, new total: {}",
+                pointsToAdd, accountId, actionType, newTotal);
+    }
+    @Override
+    public List<PointHistoryDTO> getMyPointHistory() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        Account account = (Account) auth.getPrincipal();
+        return getPointHistory(account.getId());
+    }
     private PointHistoryDTO toDTO(PointHistory history) {
         return PointHistoryDTO.builder()
                 .points(history.getPoints())

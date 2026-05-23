@@ -2,14 +2,18 @@ package com.example.hauiTrash.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
+
 import java.time.Instant;
+import java.time.LocalDateTime;
 
 @Getter @Setter
 @NoArgsConstructor @AllArgsConstructor
-@Builder
+
 @Entity
 @Table(name = "stories")
-public class Story {
+@SuperBuilder
+public class Story extends BaseEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -20,15 +24,22 @@ public class Story {
     @Column(unique = true, nullable = false, length = 255)
     private String slug;
 
+    @Column(columnDefinition = "TEXT")
+    private String summary;
+
     @Lob
     @Column(nullable = false, columnDefinition = "LONGTEXT")
     private String content;
 
     @Column(name = "thumbnail_url", length = 1000)
     private String thumbnailUrl;
+
     @Enumerated(EnumType.STRING)
     @Column(length = 50)
     private StoryCategory category;
+
+    @Column(name = "is_deleted")
+    private Boolean isDeleted;
 
     @Column(name = "view_count")
     private Integer viewCount;
@@ -37,24 +48,8 @@ public class Story {
     private Boolean isPublished;
 
     @Column(name = "published_at")
-    private Instant publishedAt;
+    private LocalDateTime publishedAt;
 
-    @Column(name = "created_at")
-    private Instant createdAt;
-
-    @Column(name = "updated_at")
-    private Instant updatedAt;
-
-    @PrePersist
-    void prePersist() {
-        if (viewCount == null) viewCount = 0;
-        if (isPublished == null) isPublished = true;
-        createdAt = Instant.now();
-        updatedAt = Instant.now();
-    }
-
-    @PreUpdate
-    void preUpdate() {
-        updatedAt = Instant.now();
-    }
+    @Column(name = "create_by")
+    private String createdBy;
 }

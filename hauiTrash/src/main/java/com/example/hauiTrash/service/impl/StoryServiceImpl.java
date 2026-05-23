@@ -2,55 +2,93 @@ package com.example.hauiTrash.service.impl;
 
 import com.example.hauiTrash.dto.StoryDetailDTO;
 import com.example.hauiTrash.dto.StoryListDTO;
-import com.example.hauiTrash.entity.Account;
 import com.example.hauiTrash.entity.Story;
 import com.example.hauiTrash.entity.StoryCategory;
-import com.example.hauiTrash.repository.AccountRepository;
 import com.example.hauiTrash.repository.StoryRepository;
 import com.example.hauiTrash.service.PointService;
 import com.example.hauiTrash.service.StoryService;
+
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.data.domain.Pageable;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class StoryServiceImpl implements StoryService {
 
     private final StoryRepository storyRepository;
     private final PointService pointService;
+    private final CacheManager cacheManager;
     @Override
     @Transactional(readOnly = true)
     public List<StoryListDTO> getPublishedStories(StoryCategory category, Pageable pageable) {
-
-        // Nếu không có chọn category, dùng mặc định
-        if (category == null ) {
-            category = StoryCategory.TIPS;
+        List<Story> stories;
+        if (category == null) {
+            stories = storyRepository.findAllPublished(pageable);
+        } else {
+            stories = storyRepository.findByCategory(category, pageable);
         }
-        List<Story> stories = storyRepository.findByCategory(category, pageable);
         return stories.stream().map(this::toListDTO).collect(Collectors.toList());
     }
-
     @Override
     @Transactional
-    public StoryDetailDTO getStoryBySlug(String slug) {
+    public StoryDetailDTO getStoryBySlug(String slug, HttpServletRequest request) {
+        // 1. Tìm story theo slug(nó thuận tiện hơn id cho user)
         Story story = storyRepository.findBySlug(slug)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy câu chuyện: " + slug));
-
-        // Tăng view count
-        story.setViewCount(story.getViewCount() + 1);
-        storyRepository.save(story);
-        var auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.isAuthenticated() && auth.getPrincipal() instanceof Account account) {
-            pointService.addPoints(account.getId(), "LEARN_STORY", slug, "Đọc câu chuyện: " + story.getTitle());
+        // 2. Lấy IP client(check view)
+        String clientIp = getClientIp(request);
+        String cacheKey = "story_view_" + slug + "_" + clientIp;
+        // 3. Kiểm tra cache (nếu có cache → không tăng view)
+        Cache cache = cacheManager.getCache("storyViews");
+        Cache.ValueWrapper cached = cache.get(cacheKey);
+        if (cached == null) {
+            // 4. Chưa có cache → tăng view
+            story.setViewCount(story.getViewCount() + 1);
+            storyRepository.save(story);
+            // 5. Lưu IP vào cache (tự động hết hạn sau 10 phút)
+            cache.put(cacheKey, System.currentTimeMillis());
+            log.info(" Tăng view cho story: {}, IP: {}", slug, clientIp);
+        } else {
+            log.info(" Bỏ qua tăng view (trong 10 phút): {}, IP: {}", slug, clientIp);
         }
+        // 6. Trả về DTO
         return toDetailDTO(story);
     }
-
+    /**
+     * Lấy IP thực của client (qua proxy, load balancer)
+     */
+    private String getClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getHeader("Proxy-Client-IP");
+        }
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getHeader("WL-Proxy-Client-IP");
+        }
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getHeader("HTTP_CLIENT_IP");
+        }
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getHeader("HTTP_X_FORWARDED_FOR");
+        }
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        return ip;
+    }
     private StoryListDTO toListDTO(Story story) {
         return StoryListDTO.builder()
                 .id(story.getId())
@@ -62,7 +100,6 @@ public class StoryServiceImpl implements StoryService {
                 .publishedAt(story.getPublishedAt())
                 .build();
     }
-
     private StoryDetailDTO toDetailDTO(Story story) {
         return StoryDetailDTO.builder()
                 .id(story.getId())
