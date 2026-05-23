@@ -708,4 +708,172 @@ Trả JSON đúng schema:
 
         return s.isBlank() ? "unknown_item" : s;
     }
+
+    // =========================================================
+    // RAG: EMBEDDING via Gemini text-embedding-004
+    // =========================================================
+
+    @Data
+    public static class EmbedContentRequest {
+        private String model;
+        private EmbedContent content;
+
+        @Data
+        public static class EmbedContent {
+            private List<EmbedPart> parts;
+        }
+
+        @Data
+        public static class EmbedPart {
+            private String text;
+        }
+    }
+
+    @Data
+    public static class EmbedContentResponse {
+        private EmbeddingValue embedding;
+
+        @Data
+        public static class EmbeddingValue {
+            private List<Float> values;
+        }
+    }
+
+    @Override
+    public float[] embedText(String text) {
+        if (text == null || text.isBlank()) {
+            return new float[0];
+        }
+
+        String embeddingModel = props.getEmbeddingModel();
+
+        EmbedContentRequest.EmbedPart part = new EmbedContentRequest.EmbedPart();
+        part.setText(text.trim());
+
+        EmbedContentRequest.EmbedContent content = new EmbedContentRequest.EmbedContent();
+        content.setParts(List.of(part));
+
+        EmbedContentRequest embedReq = new EmbedContentRequest();
+        embedReq.setModel("models/" + embeddingModel);
+        embedReq.setContent(content);
+
+        try {
+            EmbedContentResponse resp = geminiWebClient.post()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/v1beta/models/{model}:embedContent")
+                            .queryParam("key", props.getApiKey())
+                            .build(embeddingModel))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .bodyValue(embedReq)
+                    .retrieve()
+                    .bodyToMono(EmbedContentResponse.class)
+                    .timeout(Duration.ofSeconds(props.getTimeoutSeconds()))
+                    .block();
+
+            if (resp == null || resp.getEmbedding() == null || resp.getEmbedding().getValues() == null) {
+                log.warn("embedText returned empty for: {}", text);
+                return new float[0];
+            }
+
+            List<Float> values = resp.getEmbedding().getValues();
+            float[] result = new float[values.size()];
+            for (int i = 0; i < values.size(); i++) {
+                result[i] = values.get(i);
+            }
+
+            log.info("embedText OK: text='{}' dim={}", text.length() > 50 ? text.substring(0, 50) + "..." : text, result.length);
+            return result;
+
+        } catch (Exception e) {
+            log.error("embedText failed for: {}", text, e);
+            return new float[0];
+        }
+    }
+
+    // =========================================================
+    // RAG: AUGMENTED GENERATION
+    // =========================================================
+    @Override
+    public KnowledgeGenResult generateAugmentedKnowledge(
+            String label, String labelDisplay, String trashTypeName,
+            List<String> retrievedContexts
+    ) {
+        String contextBlock = (retrievedContexts != null && !retrievedContexts.isEmpty())
+                ? String.join("\n---\n", retrievedContexts)
+                : "Không có tri thức liên quan trong cơ sở dữ liệu.";
+
+        String system = """
+Bạn là chuyên gia môi trường tại Việt Nam. Viết cho người dùng phổ thông ở Việt Nam.
+
+Bạn được cung cấp TRI THỨC ĐÃ TRUY XUẤT (Retrieved Knowledge) từ cơ sở dữ liệu.
+Hãy DỰA TRÊN tri thức này để sinh ra hướng dẫn xử lý rác chính xác và phong phú.
+
+QUY TẮC RAG (Retrieval-Augmented Generation):
+1. ƯU TIÊN sử dụng thông tin từ Retrieved Knowledge.
+2. NẾU Retrieved Knowledge không đủ, bổ sung từ kiến thức chung nhưng PHẢI GHI RÕ.
+3. KHÔNG được bịa thông tin mâu thuẫn với Retrieved Knowledge.
+4. Kết hợp nhiều nguồn tri thức nếu có, tổng hợp thành câu trả lời mạch lạc.
+
+QUY TẮC NỘI DUNG:
+- material: mô tả vật liệu của VẬT THỂ, KHÔNG dùng thuật ngữ kỹ thuật (PET, HDPE...) trừ khi labelDisplay có.
+- material/note/action/impact/toxicity: tối đa 2 câu.
+- safeSteps: 3–6 bước, mỗi bước 8–18 từ, dạng hướng dẫn chi tiết.
+
+CHỈ trả về JSON hợp lệ. KHÔNG markdown. KHÔNG thêm chữ ngoài JSON.
+CHỈ TRẢ VỀ DUY NHẤT 1 JSON OBJECT.
+""";
+
+        String user = """
+=== THÔNG TIN VẬT THỂ ===
+label: %s
+labelDisplay: %s
+trashType: %s
+
+=== TRI THỨC ĐÃ TRUY XUẤT (Retrieved Knowledge) ===
+%s
+
+=== YÊU CẦU ===
+Dựa trên tri thức đã truy xuất ở trên, hãy sinh hướng dẫn xử lý rác.
+Nếu tri thức truy xuất phù hợp, tổng hợp và bổ sung chi tiết.
+Nếu không phù hợp, dùng kiến thức chung.
+
+Trả JSON đúng schema:
+{
+  "material": "string",
+  "note": "string",
+  "action": "string",
+  "impact": "string",
+  "toxicity": "string",
+  "safeSteps": ["string"],
+  "model": "%s"
+}
+""".formatted(n(label), n(labelDisplay), n(trashTypeName), contextBlock, props.getModel());
+
+        try {
+            String json = callGeminiJson(system, user);
+
+            if (json == null || json.isBlank() || "{}".equals(json.trim())) {
+                throw new IllegalArgumentException("empty_json");
+            }
+
+            KnowledgeGenResult r = om.readValue(json, KnowledgeGenResult.class);
+
+            if (r.getModel() == null) r.setModel(props.getModel());
+            if (r.getMaterial() == null || r.getMaterial().isBlank()) r.setMaterial("Không xác định");
+            if (r.getNote() == null || r.getNote().isBlank()) r.setNote("Không đốt rác. Làm sạch sơ bộ và phân loại theo hướng dẫn địa phương.");
+            if (r.getAction() == null || r.getAction().isBlank()) r.setAction("Phân loại đúng nhóm rác. Nếu có thể tái chế, hãy đưa tới điểm thu gom/tái chế.");
+            if (r.getImpact() == null || r.getImpact().isBlank()) r.setImpact("Phân loại đúng giúp giảm rác chôn lấp và tiết kiệm tài nguyên xử lý.");
+            if (r.getToxicity() == null || r.getToxicity().isBlank()) r.setToxicity("Tránh đốt vì có thể sinh khí độc. Nếu là pin/hoá chất, cần thu gom riêng.");
+            if (r.getSafeSteps() == null || r.getSafeSteps().isEmpty()) r.setSafeSteps(fbStepsLong());
+
+            log.info("RAG generateAugmentedKnowledge OK: label={} contexts={}", label, retrievedContexts != null ? retrievedContexts.size() : 0);
+            return r;
+
+        } catch (Exception e) {
+            log.error("RAG generateAugmentedKnowledge fail label={}", label, e);
+            // Fallback to non-RAG generation
+            return generateKnowledge(label, labelDisplay, trashTypeName);
+        }
+    }
 }
