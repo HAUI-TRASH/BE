@@ -55,10 +55,12 @@ public class SecurityConfig {
 
                         // ---------- PUBLIC ----------
                         .requestMatchers("/api/v1/auth/**").permitAll()
-                        .requestMatchers("/api/v1/stories/**").permitAll()
+                        .requestMatchers("/api/v1/stories").permitAll()
+                        .requestMatchers("/api/v1/stories/*").permitAll()
 
                         // ---------- ADMIN ----------
                         .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "EDITOR")
+                        .requestMatchers("/api/v1/stories/admin/**").hasAnyRole("ADMIN", "EDITOR")
 
                         // ---------- USER (BẮT BUỘC LOGIN) ----------
                         .requestMatchers("/api/v1/user/**").authenticated()

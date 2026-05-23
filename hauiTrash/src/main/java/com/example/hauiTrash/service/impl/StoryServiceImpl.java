@@ -2,6 +2,7 @@ package com.example.hauiTrash.service.impl;
 
 import com.example.hauiTrash.dto.StoryDetailDTO;
 import com.example.hauiTrash.dto.StoryListDTO;
+import com.example.hauiTrash.dto.StoryRequest;
 import com.example.hauiTrash.entity.Story;
 import com.example.hauiTrash.entity.StoryCategory;
 import com.example.hauiTrash.repository.StoryRepository;
@@ -99,6 +100,44 @@ public class StoryServiceImpl implements StoryService {
                 .viewCount(story.getViewCount())
                 .publishedAt(story.getPublishedAt())
                 .build();
+    }
+    @Override
+    @Transactional
+    public StoryDetailDTO createStory(StoryRequest request) {
+        Story story = Story.builder()
+                .title(request.getTitle())
+                .slug(request.getSlug())
+                .content(request.getContent())
+                .thumbnailUrl(request.getThumbnailUrl())
+                .category(StoryCategory.valueOf(request.getCategory()))
+                .isPublished(request.getIsPublished() != null ? request.getIsPublished() : true)
+                .viewCount(0)
+                .publishedAt(request.getPublishedAt() != null ? request.getPublishedAt() : LocalDateTime.now())
+                .build();
+        story = storyRepository.save(story);
+        return toDetailDTO(story);
+    }
+    @Override
+    @Transactional
+    public StoryDetailDTO updateStory(Long id, StoryRequest request) {
+        Story story = storyRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy câu chuyện: " + id));
+        if (request.getTitle() != null) story.setTitle(request.getTitle());
+        if (request.getSlug() != null) story.setSlug(request.getSlug());
+        if (request.getContent() != null) story.setContent(request.getContent());
+        if (request.getThumbnailUrl() != null) story.setThumbnailUrl(request.getThumbnailUrl());
+        if (request.getCategory() != null) story.setCategory(StoryCategory.valueOf(request.getCategory()));
+        if (request.getIsPublished() != null) story.setIsPublished(request.getIsPublished());
+        if (request.getPublishedAt() != null) story.setPublishedAt(request.getPublishedAt());
+        story = storyRepository.save(story);
+        return toDetailDTO(story);
+    }
+    @Override
+    @Transactional
+    public void deleteStory(Long id) {
+        Story story = storyRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy câu chuyện: " + id));
+        storyRepository.delete(story);
     }
     private StoryDetailDTO toDetailDTO(Story story) {
         return StoryDetailDTO.builder()
