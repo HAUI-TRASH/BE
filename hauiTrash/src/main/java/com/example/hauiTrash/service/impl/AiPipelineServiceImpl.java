@@ -9,6 +9,7 @@ import com.example.hauiTrash.dto.YoloPredictResponseDTO;
 import com.example.hauiTrash.entity.*;
 import com.example.hauiTrash.repository.*;
 import com.example.hauiTrash.service.AiPipelineService;
+import com.example.hauiTrash.service.PointService;
 import com.example.hauiTrash.service.RagService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +33,7 @@ public class AiPipelineServiceImpl implements AiPipelineService {
     @Autowired private TrashItemMappingRepository mappingRepo;
     @Autowired private TrashItemKnowledgeRepository knowledgeRepo;
     @Autowired private ClassificationRepository classificationRepo;
+    @Autowired private PointService pointService;
 
     @Autowired private DetectionFeedbackRepository feedbackRepo;
     @Autowired private ReviewQueueRepository reviewQueueRepo;
@@ -102,8 +104,21 @@ public class AiPipelineServiceImpl implements AiPipelineService {
 
         // 3) Visual RAG + Feedback Loop
         enrichDetectionsWithVisualRagAndFeedback(req);
+        // 4) Cộng điểm cho user
+        Account account = req.getAccount();
+        if (account != null) {
+            int detectionCount = req.getDetections().size();
+            if (detectionCount > 0) {
+                pointService.addPoints(account.getId(), "DETECTION", null, "Phát hiện rác thành công");
 
-        // 4) response
+                int bonus = Math.min(detectionCount * 5, 30);
+                if (bonus > 0) {
+                    pointService.addPoints(account.getId(), "DETECTION_MULTI", null,
+                            "Phát hiện " + detectionCount + " vật thể");
+                }
+            }
+        }
+        // 5) response
         return buildResponse_NoLlm(req, yolo.getAnnotatedUrl());
     }
 

@@ -62,7 +62,7 @@ public class SecurityConfig {
 
                         // ---------- USER (BẮT BUỘC LOGIN) ----------
                         .requestMatchers("/api/v1/user/**").authenticated()
-                        .requestMatchers("/api/v1/points").authenticated()
+                        .requestMatchers("/api/v1/points/**").authenticated()
 
 
                         // ---------- ALL OTHER ----------
