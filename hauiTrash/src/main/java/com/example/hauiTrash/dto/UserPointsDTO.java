@@ -6,12 +6,7 @@ import lombok.Data;
 
 @Data
 @Builder
-public class AccountInfo {
-    private Integer id;
-    private String fullName;
-    private String phone;
-    private String email;
-    private String role;
+public class UserPointsDTO {
     private Integer totalPoints;
     private UserRank rank;
     private String rankDisplayName;

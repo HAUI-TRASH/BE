@@ -9,6 +9,7 @@ import com.example.hauiTrash.dto.YoloPredictResponseDTO;
 import com.example.hauiTrash.entity.*;
 import com.example.hauiTrash.repository.*;
 import com.example.hauiTrash.service.AiPipelineService;
+import com.example.hauiTrash.service.PointService;
 import com.example.hauiTrash.service.RagService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -25,23 +27,22 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AiPipelineServiceImpl implements AiPipelineService {
 
-    @Autowired private AiRequestRepository aiRequestRepo;
-    @Autowired private DetectionRepository detectionRepo;
-    @Autowired private TrashItemRepository trashItemRepo;
-    @Autowired private TrashTypeRepository trashTypeRepo;
-    @Autowired private TrashItemMappingRepository mappingRepo;
-    @Autowired private TrashItemKnowledgeRepository knowledgeRepo;
-    @Autowired private ClassificationRepository classificationRepo;
+     private final AiRequestRepository aiRequestRepo;
+     private final DetectionRepository detectionRepo;
+     private final TrashItemRepository trashItemRepo;
+     private final TrashItemMappingRepository mappingRepo;
+     private final TrashItemKnowledgeRepository knowledgeRepo;
+     private final ClassificationRepository classificationRepo;
+     private final PointService pointService;
 
-    @Autowired private DetectionFeedbackRepository feedbackRepo;
-    @Autowired private ReviewQueueRepository reviewQueueRepo;
-    @Autowired private TrashItemAliasRepository trashItemAliasRepo;
+     private final DetectionFeedbackRepository feedbackRepo;
+     private final ReviewQueueRepository reviewQueueRepo;
+     private final TrashItemAliasRepository trashItemAliasRepo;
 
-    @Autowired private TrashStepRepository trashStepRepo;
-
-    @Autowired private YoloClient yoloClient;
-    @Autowired private LlmClient llmClient;
-    @Autowired private RagService ragService;
+     private final TrashStepRepository trashStepRepo;
+     private final YoloClient yoloClient;
+     private final LlmClient llmClient;
+     private final RagService ragService;
 
     private static final float DEFAULT_CONF = 0.25f;
     private static final float DEFAULT_IOU = 0.60f;
@@ -102,8 +103,35 @@ public class AiPipelineServiceImpl implements AiPipelineService {
 
         // 3) Visual RAG + Feedback Loop
         enrichDetectionsWithVisualRagAndFeedback(req);
-
-        // 4) response
+        // 4) Cộng điểm cho user
+        Account account = req.getAccount();
+        if (account != null) {
+            List<Detection> detections = req.getDetections();
+            if (detections != null && !detections.isEmpty()) {
+                // Cộng điểm cho từng object theo loại rác
+                for (Detection det : detections) {
+                    PointActionType action = PointActionType.fromLabel(det.getLabel());
+                    if (action != null) {
+                        pointService.addPoints(
+                                account.getId(),
+                                action.name(),
+                                "detection_" + det.getId(),
+                                "Phát hiện: " + (det.getLabelDisplay() != null ? det.getLabelDisplay() : det.getLabel())
+                        );
+                    }
+                }
+                // Bonus khi phát hiện nhiều object
+                if (detections.size() > 1) {
+                    pointService.addPoints(
+                            account.getId(),
+                            "DETECTION_MULTI",
+                            "request_" + req.getId(),
+                            "Phát hiện " + detections.size() + " vật thể"
+                    );
+                }
+            }
+        }
+        // 5) response
         return buildResponse_NoLlm(req, yolo.getAnnotatedUrl());
     }
 
@@ -652,7 +680,7 @@ public class AiPipelineServiceImpl implements AiPipelineService {
             TrashItem item = existed.get();
             if (item.getLabelDisplay() == null || item.getLabelDisplay().isBlank()) {
                 item.setLabelDisplay(finalDisplay);
-                item.setUpdatedAt(Instant.now());
+                item.setUpdatedAt(LocalDateTime.now());
                 return trashItemRepo.save(item);
             }
             return item;
@@ -662,8 +690,8 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                 .label(finalLabel)
                 .labelDisplay(finalDisplay)
                 .status("NEED_REVIEW")
-                .createdAt(Instant.now())
-                .updatedAt(Instant.now())
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
                 .build();
 
         return trashItemRepo.save(newItem);
@@ -1076,7 +1104,7 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                     }
 
                     if (item.getUpdatedAt() == null) {
-                        item.setUpdatedAt(Instant.now());
+                        item.setUpdatedAt(LocalDateTime.now());
                         changed = true;
                     }
 
@@ -1087,8 +1115,8 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                                 .label(normalizedLabel)
                                 .labelDisplay(finalDisplay)
                                 .status("NEED_REVIEW")
-                                .createdAt(Instant.now())
-                                .updatedAt(Instant.now())
+                                .createdAt(LocalDateTime.now())
+                                .updatedAt(LocalDateTime.now())
                                 .build())
                 );
     }

@@ -54,21 +54,17 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                         // ---------- PUBLIC ----------
-                        .requestMatchers("/api/v1/auth/register").permitAll()
-                        .requestMatchers("/api/v1/auth/login/google").permitAll()
-                        .requestMatchers("/api/v1/auth/login/facebook").permitAll()
-                        .requestMatchers("/api/v1/auth/login/user").permitAll()
-                        .requestMatchers("/api/v1/auth/login/admin").permitAll()
-                        .requestMatchers("/api/v1/auth/logout").permitAll()
-                        .requestMatchers("/api/v1/ai_response/realtime").permitAll()
-                        .requestMatchers("/ws/**").permitAll()
+                        .requestMatchers("/api/v1/auth/**").permitAll()
+                        .requestMatchers("/api/v1/stories").permitAll()
+                        .requestMatchers("/api/v1/stories/*").permitAll()
 
                         // ---------- ADMIN ----------
                         .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "EDITOR")
-                        .requestMatchers("/api/admin/rag/**").permitAll() // RAG admin - TODO: secure in production
+                        .requestMatchers("/api/v1/stories/admin/**").hasAnyRole("ADMIN", "EDITOR")
 
                         // ---------- USER (BẮT BUỘC LOGIN) ----------
                         .requestMatchers("/api/v1/user/**").authenticated()
+                        .requestMatchers("/api/v1/points/**").authenticated()
 
 
                         // ---------- ALL OTHER ----------

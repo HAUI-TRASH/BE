@@ -2,18 +2,20 @@ package com.example.hauiTrash.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
-import java.time.Instant;
+
+import java.util.ArrayList;
 import java.util.List;
 
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@SuperBuilder
 @Entity
 @Table(name = "trash_items")
-public class TrashItem {
+public class TrashItem extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -28,11 +30,6 @@ public class TrashItem {
     @Column(nullable = false, length = 30)
     private String status; // ACTIVE / NEED_REVIEW / DISABLED
 
-    @Column(name="created_at")
-    private Instant createdAt;
-
-    @Column(name="updated_at")
-    private Instant updatedAt;
 
     /*
      Visual RAG: alias label
@@ -43,33 +40,28 @@ public class TrashItem {
      -> map về "can"
      */
     @OneToMany(mappedBy = "trashItem", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<TrashItemAlias> aliases;
+    @Builder.Default
+    private List<TrashItemAlias> aliases= new ArrayList<>();
 
     /*
      mapping sang loại rác
      */
     @OneToMany(mappedBy = "trashItem", cascade = CascadeType.ALL)
-    private List<TrashItemMapping> mappings;
+    @Builder.Default
+    private List<TrashItemMapping> mappings = new ArrayList<>();
 
     /*
      knowledge của rác
      */
     @OneToMany(mappedBy = "trashItem", cascade = CascadeType.ALL)
-    private List<TrashItemKnowledge> knowledges;
-
+    @Builder.Default
+    private List<TrashItemKnowledge> knowledge= new ArrayList<>();
 
     @PrePersist
-    void prePersist() {
+    public void prePersist() {
         if (status == null) {
             status = "ACTIVE";
         }
-
-        createdAt = Instant.now();
-        updatedAt = Instant.now();
     }
 
-    @PreUpdate
-    void preUpdate() {
-        updatedAt = Instant.now();
-    }
 }

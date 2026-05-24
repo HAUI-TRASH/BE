@@ -23,5 +23,6 @@ public class BlogCategory {
     private String slug;
 
     @OneToMany(mappedBy = "category", fetch = FetchType.LAZY)
+    @Builder.Default
     private List<BlogPost> posts = new ArrayList<>();
 }
