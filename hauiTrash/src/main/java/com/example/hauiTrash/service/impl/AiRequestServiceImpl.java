@@ -6,6 +6,7 @@ import com.example.hauiTrash.entity.AiRequest;
 import com.example.hauiTrash.repository.AccountRepository;
 import com.example.hauiTrash.repository.AiRequestRepository;
 import com.example.hauiTrash.service.AiRequestService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -13,11 +14,12 @@ import org.springframework.stereotype.Service;
 import java.sql.Timestamp;
 import java.time.Instant;
 @Service
+@RequiredArgsConstructor
 public class AiRequestServiceImpl implements AiRequestService {
-    @Autowired
-    private AiRequestRepository aiRequestRepository;
-    @Autowired
-    private AccountRepository accountRepository;
+
+    private final AiRequestRepository aiRequestRepository;
+
+    private final AccountRepository accountRepository;
     @Override
     public AiRequestCreateResponseDTO createAiRequest(String cloudinaryUrl) {
         Account account = getCurrentAccountOrNull();

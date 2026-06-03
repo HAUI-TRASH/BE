@@ -4,15 +4,16 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
-import java.time.Instant;
+
 
 @Getter @Setter
 @NoArgsConstructor @AllArgsConstructor
-@Builder
+@SuperBuilder
 @Entity
 @Table(name = "accounts")
-public class Account {
+public class Account extends BaseEntity{
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -47,11 +48,6 @@ public class Account {
     private AccountRole role; // USER | ADMIN | EDITOR
 
     @Column(name = "is_active", nullable = false)
+    @Builder.Default
     private Boolean isActive = true;
-
-    @Column(name = "created_at")
-    private Instant createdAt;
-
-    @Column(name = "updated_at")
-    private Instant updatedAt;
 }
