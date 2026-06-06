@@ -256,3 +256,8 @@ Hãy tưởng tượng: Một chiếc túi nilon được sinh ra trong **1 giâ
 
 > *Mỗi chiếc túi nilon không được sử dụng là một năm ánh sáng cho hành tinh!*',
 'https://picsum.photos/id/200/400/200', 'EDUCATION', 0, true, NOW(), NOW(), NOW());
+INSERT IGNORE INTO sample_images (material, image_url) VALUES
+('plastic', '/images/samples/anh-chai-nhua.png'),
+('paper', '/images/samples/chai-giay.png'),
+('glass', '/images/samples/anh-chai-thuy-tinh.png'),
+('metal', '/images/samples/anh-chai-kim-loai.png');
