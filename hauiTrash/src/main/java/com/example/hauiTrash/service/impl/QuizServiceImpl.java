@@ -34,7 +34,8 @@ public class QuizServiceImpl implements QuizService {
         Quiz quiz = quizRepository.findByStoryId(storyId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy quiz cho truyện này"));
 
-        List<Question> questions = questionRepository.findByQuizIdOrderByOrderIndexAsc(quiz.getId());
+        // SỬA DÒNG NÀY
+        List<Question> questions = questionRepository.findByQuizId(quiz.getId());
         int totalPoints = questions.stream().mapToInt(Question::getPoints).sum();
 
         List<QuestionDTO> questionDTOs = questions.stream()
@@ -50,7 +51,6 @@ public class QuizServiceImpl implements QuizService {
                 .questions(questionDTOs)
                 .build();
     }
-
     @Override
     @Transactional
     public QuizStartDTO startQuiz(Integer accountId, Long storyId) {

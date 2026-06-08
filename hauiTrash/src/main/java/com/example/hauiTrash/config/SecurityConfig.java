@@ -57,19 +57,20 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/api/v1/stories").permitAll()
                         .requestMatchers("/api/v1/stories/*").permitAll()
-
-
+                        .requestMatchers("/api/v1/images/**").permitAll()
+                        .requestMatchers("/images/**", "/static/**").permitAll()
 
                         // ---------- ADMIN ----------
                         .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "EDITOR")
                         .requestMatchers("/api/v1/stories/admin/**").hasAnyRole("ADMIN", "EDITOR")
+
 
                         // ---------- USER (BẮT BUỘC LOGIN) ----------
                         .requestMatchers("/api/v1/user/**").authenticated()
                         .requestMatchers("/api/v1/points/**").authenticated()
                         .requestMatchers("/api/v1/certificate/**").authenticated()
                         .requestMatchers("/api/v1/quiz/**").authenticated()
-                        .requestMatchers("/api/v1/images/**").authenticated()
+
 
 
                         // ---------- ALL OTHER ----------
