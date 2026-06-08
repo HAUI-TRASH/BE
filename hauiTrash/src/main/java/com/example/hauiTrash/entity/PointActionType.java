@@ -9,12 +9,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public enum PointActionType {
 
-    DETECTION_PLASTIC(5, List.of("plastic", "bottle", "cup", "bag", "nhựa")),
-    DETECTION_PAPER(5, List.of("paper", "cardboard", "box", "newspaper", "giấy")),
-    DETECTION_GLASS(5, List.of("glass", "jar", "chai", "ly", "thủy tinh")),
-    DETECTION_METAL(5, List.of("metal", "can", "aluminum", "tin", "kim loại")),
+    DETECTION_PLASTIC(1, List.of("plastic", "bottle", "cup", "bag", "nhựa")),
+    DETECTION_PAPER(1, List.of("paper", "cardboard", "box", "newspaper", "giấy")),
+    DETECTION_GLASS(1, List.of("glass", "jar", "chai", "ly", "thủy tinh")),
+    DETECTION_METAL(1, List.of("metal", "can", "aluminum", "tin", "kim loại")),
 
-    DETECTION_MULTI(5, null);  // Bonus cho nhiều object
+    DETECTION_MULTI(2, null);  // Bonus cho nhiều object
 
     private final int points;
     private final List<String> keywords;
