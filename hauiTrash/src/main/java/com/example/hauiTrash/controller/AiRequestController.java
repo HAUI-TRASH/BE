@@ -14,6 +14,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/ai_request")
 @CrossOrigin(origins = "*")
+
 public class AiRequestController {
     @Autowired
     private CloudinaryService cloudinaryService;
