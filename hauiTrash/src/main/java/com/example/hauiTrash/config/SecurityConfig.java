@@ -58,7 +58,6 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/stories").permitAll()
                         .requestMatchers("/api/v1/stories/*").permitAll()
                         .requestMatchers("/ws/**").permitAll()
-                        .requestMatchers("/api/v1/iot/**").permitAll()
 
                         // ---------- ADMIN ----------
                         .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "EDITOR")
