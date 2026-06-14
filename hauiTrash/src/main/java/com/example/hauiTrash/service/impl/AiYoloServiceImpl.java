@@ -1,6 +1,7 @@
 package com.example.hauiTrash.service.impl;
 
 import com.example.hauiTrash.dto.AiPredictRequestDTO;
+import com.example.hauiTrash.dto.MaterialPredictResponseDTO;
 import com.example.hauiTrash.dto.RealtimeDetectionResponse;
 import com.example.hauiTrash.dto.YoloPredictResponseDTO;
 import com.example.hauiTrash.entity.AiRequest;
@@ -9,42 +10,40 @@ import com.example.hauiTrash.repository.AiRequestRepository;
 import com.example.hauiTrash.repository.DetectionRepository;
 import com.example.hauiTrash.service.AiYoloService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestTemplate;
-
-import org.springframework.core.io.ByteArrayResource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
+
 import java.io.IOException;
-import java.util.*;
+import java.time.Instant;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class AiYoloServiceImpl implements AiYoloService {
 
-
     private final RestTemplate restTemplate;
-
-
     private final AiRequestRepository aiRequestRepo;
-
-
     private final DetectionRepository detectionRepo;
 
-    @Value("${ai.yolo.base-url:http://127.0.0.1:8000}")
-    private String yoloBaseUrl;
-
-    private static final float LOW_CONF_THRESHOLD = 0.5f;
+    @Value("${ai.resnet.base-url:${ai.yolo.base-url:http://127.0.0.1:8000}}")
+    private String aiBaseUrl;
 
     @Override
     @Transactional
     public YoloPredictResponseDTO predictAndSave(AiPredictRequestDTO req) {
-
         if (req == null || req.getAiRequestId() == null) {
             throw new IllegalArgumentException("aiRequestId is required");
         }
@@ -52,102 +51,77 @@ public class AiYoloServiceImpl implements AiYoloService {
         AiRequest aiRequest = aiRequestRepo.findById(req.getAiRequestId())
                 .orElseThrow(() -> new RuntimeException("AiRequest not found: " + req.getAiRequestId()));
 
-        Map<String, Object> body = new HashMap<>();
-        body.put("request_id", req.getAiRequestId());
-        body.put("image_url", req.getImageUrl());
-        body.put("conf", req.getConf());
-        body.put("iou", req.getIou());
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
-        String url = yoloBaseUrl + "/predict-image-url";
-
-        ResponseEntity<YoloPredictResponseDTO> resp = restTemplate.exchange(
-                url,
-                HttpMethod.POST,
-                entity,
-                YoloPredictResponseDTO.class
-        );
-
-        YoloPredictResponseDTO yolo = resp.getBody();
-        if (yolo == null) {
-            throw new RuntimeException("YOLO response is null");
+        String imageUrl = firstNonBlank(req.getImageUrl(), aiRequest.getCloudinaryUrl());
+        if (imageUrl == null) {
+            throw new IllegalArgumentException("imageUrl is required");
         }
+
+        MaterialPredictResponseDTO material = classifyByImageUrl(req.getAiRequestId(), imageUrl);
 
         detectionRepo.deleteByAiRequest_Id(req.getAiRequestId());
 
-        List<Detection> rows = new ArrayList<>();
+        String label = normalizeMaterialLabel(material.getLabel());
+        boolean needsConfirm = label == null || "unknown".equalsIgnoreCase(label);
 
-        if (yolo.getDetections() != null && !yolo.getDetections().isEmpty()) {
-            for (YoloPredictResponseDTO.DetectionDTO d : yolo.getDetections()) {
-
-                String labelNorm = normalizeLabel(d.getLabel());
-                String labelDisplay = normalizeLabelDisplay(d.getLabelDisplay());
-
-                if (labelDisplay == null) {
-                    labelDisplay = labelNorm;
-                }
-
-                Float confidence = d.getConfidence();
-
-                boolean needsConfirm = Boolean.TRUE.equals(d.getNeedsConfirm())
-                        || (confidence != null && confidence < LOW_CONF_THRESHOLD);
-
-                String status = needsConfirm ? "NEEDS_CONFIRM" : "DETECTED";
-
-                rows.add(Detection.builder()
-                        .aiRequest(aiRequest)
-                        .label(labelNorm)
-                        .labelDisplay(labelDisplay)
-                        .confidence(confidence)
-                        .annotatedUrl(d.getAnnotatedUrl() != null ? d.getAnnotatedUrl() : yolo.getAnnotatedUrl())
-                        .status(status)
-                        .x1(d.getX1())
-                        .y1(d.getY1())
-                        .x2(d.getX2())
-                        .y2(d.getY2())
-                        .cropUrl(d.getCropUrl())
-                        .build());
-            }
-
-            detectionRepo.saveAll(rows);
+        Detection savedDetection = null;
+        if (label != null) {
+            Detection row = Detection.builder()
+                    .aiRequest(aiRequest)
+                    .label(label)
+                    .labelDisplay(materialDisplay(label))
+                    .confidence(null)
+                    .annotatedUrl(null)
+                    .status(needsConfirm ? "NEEDS_CONFIRM" : "DETECTED")
+                    .build();
+            savedDetection = detectionRepo.save(row);
         }
 
-        return yolo;
+        aiRequest.setFinishedAt(Instant.now());
+        aiRequestRepo.save(aiRequest);
+
+        return buildLegacyResponse(req.getAiRequestId(), imageUrl, savedDetection, needsConfirm);
     }
 
     @Override
     public RealtimeDetectionResponse detectRealtime(MultipartFile file) {
-        String url = yoloBaseUrl + "/predict-image-json";
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-
-        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         try {
-            body.add("file", new ByteArrayResource(file.getBytes()) {
-                @Override
-                public String getFilename() {
-                    return file.getOriginalFilename();
-                }
-            });
+            return classifyBytes(file.getBytes(), file.getOriginalFilename());
         } catch (IOException e) {
             throw new RuntimeException("Failed to read multipart file", e);
         }
-        body.add("conf", 0.5f); // Ngưỡng confidence mặc định cho realtime
-        body.add("iou", 0.45f);
-
-        HttpEntity<MultiValueMap<String, Object>> entity = new HttpEntity<>(body, headers);
-        ResponseEntity<YoloPredictResponseDTO> resp = restTemplate.exchange(
-                url, HttpMethod.POST, entity, YoloPredictResponseDTO.class);
-        return extractOptimalDetection(resp);
     }
 
     @Override
     public RealtimeDetectionResponse detectRealtime(byte[] imageBytes) {
-        String url = yoloBaseUrl + "/predict-image-json";
+        return classifyBytes(imageBytes, "frame.jpg");
+    }
+
+    private MaterialPredictResponseDTO classifyByImageUrl(Integer requestId, String imageUrl) {
+        String url = aiBaseUrl + "/classify-image-url";
+        Map<String, Object> body = Map.of(
+                "request_id", requestId,
+                "image_url", imageUrl
+        );
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        ResponseEntity<MaterialPredictResponseDTO> resp = restTemplate.exchange(
+                url,
+                HttpMethod.POST,
+                new HttpEntity<>(body, headers),
+                MaterialPredictResponseDTO.class
+        );
+
+        MaterialPredictResponseDTO material = resp.getBody();
+        if (!resp.getStatusCode().is2xxSuccessful() || material == null) {
+            throw new RuntimeException("ResNet material classification failed");
+        }
+        return material;
+    }
+
+    private RealtimeDetectionResponse classifyBytes(byte[] imageBytes, String filename) {
+        String url = aiBaseUrl + "/classify-image";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
@@ -156,40 +130,82 @@ public class AiYoloServiceImpl implements AiYoloService {
         body.add("file", new ByteArrayResource(imageBytes) {
             @Override
             public String getFilename() {
-                return "frame.jpg"; 
+                return firstNonBlank(filename, "frame.jpg");
             }
         });
-        body.add("conf", 0.5f); 
-        body.add("iou", 0.45f);
 
-        HttpEntity<MultiValueMap<String, Object>> entity = new HttpEntity<>(body, headers);
-        ResponseEntity<YoloPredictResponseDTO> resp = restTemplate.exchange(
-                url, HttpMethod.POST, entity, YoloPredictResponseDTO.class);
-        return extractOptimalDetection(resp);
-    }
+        ResponseEntity<MaterialPredictResponseDTO> resp = restTemplate.exchange(
+                url,
+                HttpMethod.POST,
+                new HttpEntity<>(body, headers),
+                MaterialPredictResponseDTO.class
+        );
 
-    private RealtimeDetectionResponse extractOptimalDetection(ResponseEntity<YoloPredictResponseDTO> resp) {
-        YoloPredictResponseDTO yolo = resp.getBody();
-        if (yolo == null || yolo.getDetections() == null || yolo.getDetections().isEmpty()) {
-            return null;
+        MaterialPredictResponseDTO material = resp.getBody();
+        if (!resp.getStatusCode().is2xxSuccessful() || material == null) {
+            throw new RuntimeException("ResNet material classification failed");
         }
 
-        // Lấy kết quả có độ tin cậy cao nhất
-        YoloPredictResponseDTO.DetectionDTO best = yolo.getDetections().stream()
-                .max(Comparator.comparing(YoloPredictResponseDTO.DetectionDTO::getConfidence))
-                .orElse(null);
-
-        if (best == null) return null;
-
+        String label = normalizeMaterialLabel(material.getLabel());
         return RealtimeDetectionResponse.builder()
-                .label(normalizeLabel(best.getLabel()))
-                .labelDisplay(best.getLabelDisplay() != null ? best.getLabelDisplay() : normalizeLabel(best.getLabel()))
-                .confidence(best.getConfidence())
-                .x1(best.getX1())
-                .y1(best.getY1())
-                .x2(best.getX2())
-                .y2(best.getY2())
+                .label(label)
+                .labelDisplay(materialDisplay(label))
+                .confidence(null)
                 .build();
+    }
+
+    private YoloPredictResponseDTO buildLegacyResponse(
+            Integer requestId,
+            String imageUrl,
+            Detection savedDetection,
+            boolean needsConfirm
+    ) {
+        YoloPredictResponseDTO response = new YoloPredictResponseDTO();
+        response.setRequestId(requestId);
+        response.setImageUrl(imageUrl);
+        response.setAnnotatedUrl(null);
+        response.setParams(Map.of("model", "resnet50"));
+        response.setCount(savedDetection != null ? 1 : 0);
+        response.setConfidenceAvg(0f);
+        response.setRequiresConfirmation(needsConfirm);
+
+        if (savedDetection == null) {
+            response.setDetections(List.of());
+            return response;
+        }
+
+        YoloPredictResponseDTO.DetectionDTO detection = new YoloPredictResponseDTO.DetectionDTO();
+        detection.setId(savedDetection.getId());
+        detection.setLabel(savedDetection.getLabel());
+        detection.setLabelDisplay(savedDetection.getLabelDisplay());
+        detection.setConfidence(savedDetection.getConfidence());
+        detection.setAnnotatedUrl(savedDetection.getAnnotatedUrl());
+        detection.setNeedsConfirm(needsConfirm);
+        response.setDetections(List.of(detection));
+        return response;
+    }
+
+    private String normalizeMaterialLabel(String label) {
+        String normalized = normalizeLabel(label);
+        if ("mental".equals(normalized)) {
+            return "metal";
+        }
+        return normalized;
+    }
+
+    private String materialDisplay(String label) {
+        if (label == null) return "Kh\u00f4ng x\u00e1c \u0111\u1ecbnh";
+        return switch (label.toLowerCase(Locale.ROOT)) {
+            case "plastic" -> "Nh\u1ef1a";
+            case "metal" -> "Kim lo\u1ea1i";
+            case "glass" -> "Th\u1ee7y tinh";
+            case "paper" -> "Gi\u1ea5y";
+            case "unknown" -> "Kh\u00f4ng x\u00e1c \u0111\u1ecbnh";
+            default -> {
+                String s = label.replace('_', ' ').trim();
+                yield s.isEmpty() ? "Kh\u00f4ng x\u00e1c \u0111\u1ecbnh" : Character.toUpperCase(s.charAt(0)) + s.substring(1);
+            }
+        };
     }
 
     private String normalizeLabel(String label) {
@@ -199,9 +215,13 @@ public class AiYoloServiceImpl implements AiYoloService {
         return s.toLowerCase(Locale.ROOT);
     }
 
-    private String normalizeLabelDisplay(String labelDisplay) {
-        if (labelDisplay == null) return null;
-        String s = labelDisplay.trim();
-        return s.isEmpty() ? null : s;
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first;
+        }
+        if (second != null && !second.isBlank()) {
+            return second;
+        }
+        return null;
     }
 }

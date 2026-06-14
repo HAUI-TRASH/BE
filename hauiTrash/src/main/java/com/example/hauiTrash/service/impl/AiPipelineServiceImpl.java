@@ -79,13 +79,17 @@ public class AiPipelineServiceImpl implements AiPipelineService {
         if (yolo.getDetections() != null) {
             for (var d : yolo.getDetections()) {
                 Float conf = d.getConfidence();
+                String label = normLabel(d.getLabel());
+                boolean needsConfirm = label == null
+                        || "unknown".equalsIgnoreCase(label)
+                        || (conf != null && conf < LOW_CONF_THRESHOLD);
 
                 Detection det = Detection.builder()
-                        .label(normLabel(d.getLabel()))
+                        .label(label)
                         .labelDisplay(normLabelDisplay(d.getLabelDisplay()))
                         .confidence(conf)
                         .annotatedUrl(d.getAnnotatedUrl())
-                        .status((conf == null || conf < LOW_CONF_THRESHOLD) ? "NEEDS_CONFIRM" : "DETECTED")
+                        .status(needsConfirm ? "NEEDS_CONFIRM" : "DETECTED")
                         .x1(d.getX1())
                         .y1(d.getY1())
                         .x2(d.getX2())

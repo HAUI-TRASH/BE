@@ -25,6 +25,12 @@ public class JwtFilter extends OncePerRequestFilter {
     private final AccountRepository accountRepo;
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getServletPath();
+        return path != null && (path.equals("/api/v1/iot") || path.startsWith("/api/v1/iot/"));
+    }
+
+    @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {

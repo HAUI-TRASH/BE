@@ -5,16 +5,22 @@ import com.example.hauiTrash.dto.AiRequestCreateResponseDTO;
 import com.example.hauiTrash.dto.AiResponseDetailsDTO;
 import com.example.hauiTrash.dto.RealtimeDetectionResponse;
 import com.example.hauiTrash.dto.YoloPredictResponseDTO;
-import com.example.hauiTrash.iot.dto.*;
+import com.example.hauiTrash.iot.dto.IotAiRequestResponseDTO;
+import com.example.hauiTrash.iot.dto.IotDetailResponseDTO;
+import com.example.hauiTrash.iot.dto.IotPredictRequestDTO;
+import com.example.hauiTrash.iot.dto.IotPredictResponseDTO;
+import com.example.hauiTrash.iot.dto.IotRealtimeResponseDTO;
 import com.example.hauiTrash.iot.service.IotService;
-import com.example.hauiTrash.service.*;
+import com.example.hauiTrash.service.AiPipelineService;
+import com.example.hauiTrash.service.AiRequestService;
+import com.example.hauiTrash.service.AiYoloService;
+import com.example.hauiTrash.service.CloudinaryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -26,30 +32,19 @@ public class IotServiceImpl implements IotService {
     private final AiYoloService aiYoloService;
     private final AiPipelineService aiPipelineService;
 
-    // ==================== CREATE AI REQUEST ====================
-
     @Override
     public IotAiRequestResponseDTO createAiRequest(MultipartFile file) {
-        // 1. Upload ảnh lên Cloudinary
         String cloudinaryUrl = cloudinaryService.uploadImage(file);
-
-        // 2. Tạo AiRequest (public nên account = null)
         AiRequestCreateResponseDTO created = aiRequestService.createAiRequest(cloudinaryUrl);
 
         return IotAiRequestResponseDTO.builder()
                 .id(created.getId())
                 .cloudinaryUrl(created.getCloudinaryUrl())
-                .createdAt(created.getCreatedAt() != null
-                        ? created.getCreatedAt().toInstant()
-                        : null)
-                .finishedAt(created.getFinishedAt() != null
-                        ? created.getFinishedAt().toInstant()
-                        : null)
+                .createdAt(created.getCreatedAt() != null ? created.getCreatedAt().toInstant() : null)
+                .finishedAt(created.getFinishedAt() != null ? created.getFinishedAt().toInstant() : null)
                 .accountId(created.getAccountId())
                 .build();
     }
-
-    // ==================== GET DETAIL ====================
 
     @Override
     public IotDetailResponseDTO getDetail(Integer aiRequestId) {
@@ -57,25 +52,17 @@ public class IotServiceImpl implements IotService {
         return mapToIotDetail(detail);
     }
 
-    // ==================== PREDICT (YOLO) ====================
-
     @Override
     public IotPredictResponseDTO predict(IotPredictRequestDTO req) {
-        // Convert iot DTO → existing DTO
         AiPredictRequestDTO aiReq = new AiPredictRequestDTO();
         aiReq.setAiRequestId(req.getAiRequestId());
         aiReq.setImageUrl(req.getImageUrl());
         aiReq.setConf(req.getConf());
         aiReq.setIou(req.getIou());
 
-        // Gọi service YOLO
-        YoloPredictResponseDTO yolo = aiYoloService.predictAndSave(aiReq);
-
-        // Map kết quả → iot DTO
-        return mapToIotPredictResponse(yolo);
+        YoloPredictResponseDTO classified = aiYoloService.predictAndSave(aiReq);
+        return mapToIotPredictResponse(classified);
     }
-
-    // ==================== REALTIME DETECTION ====================
 
     @Override
     public IotRealtimeResponseDTO detectRealtime(MultipartFile file) {
@@ -83,19 +70,17 @@ public class IotServiceImpl implements IotService {
         if (response == null) {
             return IotRealtimeResponseDTO.builder()
                     .label(null)
-                    .labelDisplay("Không phát hiện rác")
+                    .labelDisplay("Chua phan loai")
                     .confidence(0.0f)
                     .build();
         }
         return mapToIotRealtimeResponse(response);
     }
 
-    // ==================== MAPPING HELPERS ====================
-
-    private IotPredictResponseDTO mapToIotPredictResponse(YoloPredictResponseDTO yolo) {
+    private IotPredictResponseDTO mapToIotPredictResponse(YoloPredictResponseDTO classified) {
         List<IotPredictResponseDTO.DetectionDTO> detections = Collections.emptyList();
-        if (yolo.getDetections() != null) {
-            detections = yolo.getDetections().stream()
+        if (classified.getDetections() != null) {
+            detections = classified.getDetections().stream()
                     .map(d -> IotPredictResponseDTO.DetectionDTO.builder()
                             .id(d.getId())
                             .label(d.getLabel())
@@ -113,13 +98,13 @@ public class IotServiceImpl implements IotService {
         }
 
         return IotPredictResponseDTO.builder()
-                .requestId(yolo.getRequestId())
-                .imageUrl(yolo.getImageUrl())
-                .annotatedUrl(yolo.getAnnotatedUrl())
-                .params(yolo.getParams())
-                .count(yolo.getCount())
-                .confidenceAvg(yolo.getConfidenceAvg())
-                .requiresConfirmation(yolo.getRequiresConfirmation())
+                .requestId(classified.getRequestId())
+                .imageUrl(classified.getImageUrl())
+                .annotatedUrl(classified.getAnnotatedUrl())
+                .params(classified.getParams())
+                .count(classified.getCount())
+                .confidenceAvg(classified.getConfidenceAvg())
+                .requiresConfirmation(classified.getRequiresConfirmation())
                 .detections(detections)
                 .build();
     }
@@ -128,38 +113,7 @@ public class IotServiceImpl implements IotService {
         List<IotDetailResponseDTO.DetectionDTO> detections = Collections.emptyList();
         if (detail.getDetections() != null) {
             detections = detail.getDetections().stream()
-                    .map(d -> {
-                        IotDetailResponseDTO.DetailDTO detailDTO = null;
-                        if (d.getDetail() != null) {
-                            detailDTO = IotDetailResponseDTO.DetailDTO.builder()
-                                    .impact(d.getDetail().getImpact())
-                                    .toxicity(d.getDetail().getToxicity())
-                                    .safeSteps(d.getDetail().getSafeSteps())
-                                    .trashSteps(mapTrashSteps(d.getDetail().getTrashSteps()))
-                                    .build();
-                        }
-
-                        return IotDetailResponseDTO.DetectionDTO.builder()
-                                .id(d.getId())
-                                .label(d.getLabel())
-                                .labelDisplay(d.getLabelDisplay())
-                                .confidence(d.getConfidence())
-                                .annotatedUrl(d.getAnnotatedUrl())
-                                .trashItemId(d.getTrashItemId())
-                                .status(d.getStatus())
-                                .x1(d.getX1())
-                                .y1(d.getY1())
-                                .x2(d.getX2())
-                                .y2(d.getY2())
-                                .cropUrl(d.getCropUrl())
-                                .trashType(d.getTrashType())
-                                .material(d.getMaterial())
-                                .note(d.getNote())
-                                .action(d.getAction())
-                                .detail(detailDTO)
-                                .quantity(d.getQuantity())
-                                .build();
-                    })
+                    .map(this::mapDetailDetection)
                     .collect(Collectors.toList());
         }
 
@@ -174,6 +128,39 @@ public class IotServiceImpl implements IotService {
                 .count(detail.getCount())
                 .confidenceAvg(detail.getConfidenceAvg())
                 .detections(detections)
+                .build();
+    }
+
+    private IotDetailResponseDTO.DetectionDTO mapDetailDetection(AiResponseDetailsDTO.DetectionDTO d) {
+        IotDetailResponseDTO.DetailDTO detailDTO = null;
+        if (d.getDetail() != null) {
+            detailDTO = IotDetailResponseDTO.DetailDTO.builder()
+                    .impact(d.getDetail().getImpact())
+                    .toxicity(d.getDetail().getToxicity())
+                    .safeSteps(d.getDetail().getSafeSteps())
+                    .trashSteps(mapTrashSteps(d.getDetail().getTrashSteps()))
+                    .build();
+        }
+
+        return IotDetailResponseDTO.DetectionDTO.builder()
+                .id(d.getId())
+                .label(d.getLabel())
+                .labelDisplay(d.getLabelDisplay())
+                .confidence(d.getConfidence())
+                .annotatedUrl(d.getAnnotatedUrl())
+                .trashItemId(d.getTrashItemId())
+                .status(d.getStatus())
+                .x1(d.getX1())
+                .y1(d.getY1())
+                .x2(d.getX2())
+                .y2(d.getY2())
+                .cropUrl(d.getCropUrl())
+                .trashType(d.getTrashType())
+                .material(d.getMaterial())
+                .note(d.getNote())
+                .action(d.getAction())
+                .detail(detailDTO)
+                .quantity(d.getQuantity())
                 .build();
     }
 

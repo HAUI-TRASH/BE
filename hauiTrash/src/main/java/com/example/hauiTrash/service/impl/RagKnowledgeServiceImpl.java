@@ -6,6 +6,7 @@ import com.example.hauiTrash.entity.TrashItemKnowledge;
 import com.example.hauiTrash.repository.KnowledgeEmbeddingRepository;
 import com.example.hauiTrash.repository.TrashItemKnowledgeRepository;
 import com.example.hauiTrash.service.RagKnowledgeService;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,14 +45,24 @@ public class RagKnowledgeServiceImpl implements RagKnowledgeService {
         try {
             // Tạo embedding cho query
             String queryEmbedding = generateEmbedding(query);
+            List<Double> queryVector = parseEmbedding(queryEmbedding);
+            if (queryVector.isEmpty()) {
+                return List.of();
+            }
 
             // Tìm kiếm trong database
-            List<KnowledgeEmbedding> similar = embeddingRepository.findSimilarEmbeddings(
-                    queryEmbedding, SIMILARITY_THRESHOLD, limit
-            );
+            int effectiveLimit = limit > 0 ? limit : DEFAULT_LIMIT;
 
             // Convert sang DTO
-            return similar.stream()
+            return embeddingRepository.findByEmbeddingJsonIsNotNull().stream()
+                    .map(embedding -> new ScoredEmbedding(
+                            embedding,
+                            cosineSimilarity(queryVector, parseEmbedding(embedding.getEmbeddingJson()))
+                    ))
+                    .filter(scored -> scored.similarity() >= SIMILARITY_THRESHOLD)
+                    .sorted(Comparator.comparingDouble(ScoredEmbedding::similarity).reversed())
+                    .limit(effectiveLimit)
+                    .map(ScoredEmbedding::embedding)
                     .map(this::convertToDTO)
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
@@ -116,6 +127,48 @@ public class RagKnowledgeServiceImpl implements RagKnowledgeService {
         } catch (Exception e) {
             return "[]";
         }
+    }
+
+    private List<Double> parseEmbedding(String embeddingJson) {
+        if (embeddingJson == null || embeddingJson.isBlank()) {
+            return List.of();
+        }
+
+        try {
+            return objectMapper.readValue(embeddingJson, new TypeReference<List<Double>>() {});
+        } catch (Exception e) {
+            log.warn("Failed to parse embedding JSON", e);
+            return List.of();
+        }
+    }
+
+    private double cosineSimilarity(List<Double> firstVector, List<Double> secondVector) {
+        if (firstVector.isEmpty() || firstVector.size() != secondVector.size()) {
+            return 0;
+        }
+
+        int length = firstVector.size();
+        double dotProduct = 0;
+        double firstNorm = 0;
+        double secondNorm = 0;
+
+        for (int i = 0; i < length; i++) {
+            double firstValue = firstVector.get(i);
+            double secondValue = secondVector.get(i);
+
+            dotProduct += firstValue * secondValue;
+            firstNorm += firstValue * firstValue;
+            secondNorm += secondValue * secondValue;
+        }
+
+        if (firstNorm == 0 || secondNorm == 0) {
+            return 0;
+        }
+
+        return dotProduct / (Math.sqrt(firstNorm) * Math.sqrt(secondNorm));
+    }
+
+    private record ScoredEmbedding(KnowledgeEmbedding embedding, double similarity) {
     }
 
     @Override
