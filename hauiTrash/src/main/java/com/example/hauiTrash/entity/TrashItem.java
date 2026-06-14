@@ -29,7 +29,9 @@ public class TrashItem extends BaseEntity {
 
     @Column(nullable = false, length = 30)
     private String status; // ACTIVE / NEED_REVIEW / DISABLED
-
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "trash_bin_id")
+    private TrashBin trashBin;
 
     /*
      Visual RAG: alias label

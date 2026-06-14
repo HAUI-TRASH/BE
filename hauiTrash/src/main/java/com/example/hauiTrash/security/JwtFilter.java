@@ -31,6 +31,7 @@ public class JwtFilter extends OncePerRequestFilter {
 
         String header = request.getHeader("Authorization");
 
+        // Nếu không có token hoặc không phải Bearer token -> cho đi tiếp (có thể là request public)
         if (header == null || !header.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
@@ -38,9 +39,12 @@ public class JwtFilter extends OncePerRequestFilter {
 
         String token = header.substring(7);
 
+        // 🔥 SỬA: Nếu token không hợp lệ -> trả về 401 luôn, không cho đi tiếp
         if (!jwtUtil.validate(token)) {
-            filterChain.doFilter(request, response);
-            return;
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"message\":\"Token không hợp lệ hoặc đã hết hạn\"}");
+            return;  // Dừng lại, không gọi filterChain.doFilter
         }
 
         // Nếu đã auth rồi thì bỏ qua
@@ -53,7 +57,9 @@ public class JwtFilter extends OncePerRequestFilter {
 
         Account acc = accountRepo.findById(accountId).orElse(null);
         if (acc == null || Boolean.FALSE.equals(acc.getIsActive())) {
-            filterChain.doFilter(request, response);
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"message\":\"Tài khoản không tồn tại hoặc đã bị vô hiệu hóa\"}");
             return;
         }
 

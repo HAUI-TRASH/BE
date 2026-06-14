@@ -3,14 +3,17 @@ package com.example.hauiTrash.controller;
 import com.example.hauiTrash.dto.ApiResponse;
 import com.example.hauiTrash.dto.StoryDetailDTO;
 import com.example.hauiTrash.dto.StoryRequest;
+import com.example.hauiTrash.dto.TrashBinDTO;
 import com.example.hauiTrash.entity.Question;
 import com.example.hauiTrash.entity.Quiz;
 import com.example.hauiTrash.repository.QuestionRepository;
 import com.example.hauiTrash.repository.QuizRepository;
 import com.example.hauiTrash.service.QuizService;
 import com.example.hauiTrash.service.StoryService;
+import com.example.hauiTrash.service.TrashBinService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -26,6 +29,7 @@ public class AdminController {
     private final QuestionRepository questionRepository;
     private final StoryService storyService;
     private final QuizService quizService;
+    private final TrashBinService  trashBinService;
     // ==================== STORY MANAGEMENT ====================
 
     @PostMapping("/stories")
@@ -197,6 +201,75 @@ public class AdminController {
         return ResponseEntity.ok(ApiResponse.<Void>builder()
                 .message("Xóa câu hỏi thành công")
                 .data(null)
+                .build());
+    }
+    // ==================== TRASH BIN MANAGEMENT ====================
+
+    // Lấy tất cả thùng rác (kể cả inactive)
+    @GetMapping("/trash-bins")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<List<TrashBinDTO>>> getAllTrashBins() {
+        List<TrashBinDTO> bins = trashBinService.getAllTrashBins();
+        return ResponseEntity.ok(ApiResponse.<List<TrashBinDTO>>builder()
+                .message("Lấy danh sách thùng rác thành công")
+                .data(bins)
+                .build());
+    }
+
+    // Lấy thùng rác theo ID
+    @GetMapping("/trash-bins/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<TrashBinDTO>> getTrashBinById(@PathVariable Long id) {
+        TrashBinDTO bin = trashBinService.getTrashBinById(id);
+        return ResponseEntity.ok(ApiResponse.<TrashBinDTO>builder()
+                .message("Lấy thùng rác thành công")
+                .data(bin)
+                .build());
+    }
+
+    // Lấy thùng rác theo mã (giay, nhua, kim_loai, thuy_tinh)
+    @GetMapping("/trash-bins/code/{name}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<TrashBinDTO>> getTrashBinByName(@PathVariable String name) {
+        TrashBinDTO bin = trashBinService.getTrashBinByName(name);
+        return ResponseEntity.ok(ApiResponse.<TrashBinDTO>builder()
+                .message("Lấy thùng rác thành công")
+                .data(bin)
+                .build());
+    }
+
+    // Tạo mới thùng rác
+    @PostMapping("/trash-bins")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<TrashBinDTO>> createTrashBin(@Valid @RequestBody TrashBinDTO dto) {
+        TrashBinDTO created = trashBinService.createTrashBin(dto);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.<TrashBinDTO>builder()
+                        .message("Tạo thùng rác thành công")
+                        .data(created)
+                        .build());
+    }
+
+    // Cập nhật thùng rác
+    @PutMapping("/trash-bins/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<TrashBinDTO>> updateTrashBin(
+            @PathVariable Long id,
+            @Valid @RequestBody TrashBinDTO dto) {
+        TrashBinDTO updated = trashBinService.updateTrashBin(id, dto);
+        return ResponseEntity.ok(ApiResponse.<TrashBinDTO>builder()
+                .message("Cập nhật thùng rác thành công")
+                .data(updated)
+                .build());
+    }
+
+    // Xóa thùng rác
+    @DeleteMapping("/trash-bins/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> deleteTrashBin(@PathVariable Long id) {
+        trashBinService.deleteTrashBin(id);
+        return ResponseEntity.ok(ApiResponse.<Void>builder()
+                .message("Xóa thùng rác thành công")
                 .build());
     }
 }

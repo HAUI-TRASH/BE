@@ -38,6 +38,7 @@ public class AiPipelineServiceImpl implements AiPipelineService {
      private final DetectionFeedbackRepository feedbackRepo;
      private final ReviewQueueRepository reviewQueueRepo;
      private final TrashItemAliasRepository trashItemAliasRepo;
+    private final TrashBinRepository trashBinRepository;
 
      private final TrashStepRepository trashStepRepo;
      private final YoloClient yoloClient;
@@ -564,7 +565,13 @@ public class AiPipelineServiceImpl implements AiPipelineService {
         if ("CONFIRMED".equalsIgnoreCase(feedbackType)) {
             resolvedItem = resolveOrCreateTrashItemFromUserInput(confirmedInput);
         }
-
+        if (resolvedItem != null && resolvedItem.getTrashBin() == null) {
+            TrashBin bin = determineTrashBinFromUserInput(confirmedInput);
+            if (bin != null) {
+                resolvedItem.setTrashBin(bin);
+                resolvedItem = trashItemRepo.save(resolvedItem);
+            }
+        }
         String feedbackAction;
         if ("CONFIRMED".equalsIgnoreCase(feedbackType)) {
             if (resolvedItem != null && originalLabel != null
@@ -641,6 +648,31 @@ public class AiPipelineServiceImpl implements AiPipelineService {
 
         return dto;
     }
+    private TrashBin determineTrashBinFromUserInput(String userInput) {
+        if (userInput == null || userInput.isBlank()) {
+            return null;
+        }
+
+        String lowerInput = userInput.toLowerCase();
+        String binCode = null;
+
+        if (lowerInput.contains("nhựa") || lowerInput.contains("plastic") ||
+                lowerInput.contains("chai nhựa") || lowerInput.contains("bottle")) {
+            binCode = "nhua";
+        } else if (lowerInput.contains("giấy") || lowerInput.contains("paper") ||
+                lowerInput.contains("carton") || lowerInput.contains("hộp giấy")) {
+            binCode = "giay";
+        } else if (lowerInput.contains("kim loại") || lowerInput.contains("metal") ||
+                lowerInput.contains("lon") || lowerInput.contains("can")) {
+            binCode = "kim_loai";
+        } else if (lowerInput.contains("thủy tinh") || lowerInput.contains("glass")) {
+            binCode = "thuy_tinh";
+        } else {
+            return null;
+        }
+
+        return trashBinRepository.findByCode(binCode).orElse(null);
+    }
     @Transactional
     protected TrashItem resolveOrCreateTrashItemFromUserInput(String userInput) {
         if (userInput == null || userInput.isBlank()) {
@@ -656,9 +688,9 @@ public class AiPipelineServiceImpl implements AiPipelineService {
         }
 
         // 2. tìm theo labelDisplay exact
-        Optional<TrashItem> byDisplay = trashItemRepo.findByLabelDisplayIgnoreCase(normalizedInput);
-        if (byDisplay.isPresent()) {
-            return byDisplay.get();
+        List<TrashItem> byDisplayList = trashItemRepo.findByLabelDisplayIgnoreCase(normalizedInput);
+        if (!byDisplayList.isEmpty()) {
+            return byDisplayList.get(0);
         }
 
         // 3. tìm theo alias nếu có
@@ -690,6 +722,7 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                 .label(finalLabel)
                 .labelDisplay(finalDisplay)
                 .status("NEED_REVIEW")
+                .trashBin(determineTrashBinFromUserInput(userInput))
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -941,7 +974,16 @@ public class AiPipelineServiceImpl implements AiPipelineService {
         if (finalItem != null) {
             finalKnowledge = knowledgeRepo.findActiveByTrashItemId(finalItem.getId()).orElse(kn);
         }
+        String binCode = null;
+        String binName = null;
+        String binColorCode = null;
 
+        if (finalItem != null && finalItem.getTrashBin() != null) {
+            TrashBin bin = finalItem.getTrashBin();
+            binCode = bin.getCode();
+            binName = bin.getNameTrash();
+            binColorCode = bin.getColorCode();
+        }
         String resolvedLabel = det.getLabel();
         if (finalItem != null && finalItem.getLabel() != null && !finalItem.getLabel().isBlank()) {
             resolvedLabel = finalItem.getLabel();
@@ -984,6 +1026,9 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                 .material(finalKnowledge != null ? finalKnowledge.getMaterial() : null)
                 .note(finalKnowledge != null ? finalKnowledge.getNote() : null)
                 .action(finalKnowledge != null ? finalKnowledge.getAction() : null)
+                .binCode(binCode)
+                .binName(binName)
+                .binColorCode(binColorCode)
                 .detail((finalKnowledge == null && stepDTOs == null) ? null : AiResponseDetailsDTO.DetailDTO.builder()
                         .impact(finalKnowledge != null ? finalKnowledge.getImpact() : null)
                         .toxicity(finalKnowledge != null ? finalKnowledge.getToxicity() : null)
@@ -1093,6 +1138,7 @@ public class AiPipelineServiceImpl implements AiPipelineService {
         }
 
         String finalDisplay = normalizedDisplay != null ? normalizedDisplay : fallbackLabelDisplay(normalizedLabel);
+        TrashBin assignedBin = determineTrashBinFromLabel(normalizedLabel);
 
         return trashItemRepo.findByLabel(normalizedLabel)
                 .map(item -> {
@@ -1103,6 +1149,11 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                         changed = true;
                     }
 
+                    if (item.getTrashBin() == null && assignedBin != null) {
+                        item.setTrashBin(assignedBin);
+                        changed = true;
+                    }
+
                     if (item.getUpdatedAt() == null) {
                         item.setUpdatedAt(LocalDateTime.now());
                         changed = true;
@@ -1110,17 +1161,50 @@ public class AiPipelineServiceImpl implements AiPipelineService {
 
                     return changed ? trashItemRepo.save(item) : item;
                 })
-                .orElseGet(() ->
-                        trashItemRepo.save(TrashItem.builder()
-                                .label(normalizedLabel)
-                                .labelDisplay(finalDisplay)
-                                .status("NEED_REVIEW")
-                                .createdAt(LocalDateTime.now())
-                                .updatedAt(LocalDateTime.now())
-                                .build())
-                );
+                .orElseGet(() -> {
+                    TrashItem newItem = TrashItem.builder()
+                            .label(normalizedLabel)
+                            .labelDisplay(finalDisplay)
+                            .status("NEED_REVIEW")
+                            .trashBin(assignedBin)
+                            .createdAt(LocalDateTime.now())
+                            .updatedAt(LocalDateTime.now())
+                            .build();
+                    return trashItemRepo.save(newItem);
+                });
     }
+    /**
+     *  THÊM METHOD MỚI: Xác định TrashBin từ label
+     */
+    private TrashBin determineTrashBinFromLabel(String label) {
+        if (label == null || label.isBlank()) {
+            return null;
+        }
 
+        String lowerLabel = label.toLowerCase().trim();
+
+        // Giấy
+        if (lowerLabel.matches(".*(giay|giấy|paper|carton|cardboard|newspaper|magazine|box|hop|bia|vo hop|thung carton).*")) {
+            return trashBinRepository.findByCode("giay").orElse(null);
+        }
+
+        // Nhựa
+        if (lowerLabel.matches(".*(nhua|nhựa|plastic|pet|bottle|chai|vo chai|hop nhua|hop nhựa|day buoc|tui nilon).*")) {
+            return trashBinRepository.findByCode("nhua").orElse(null);
+        }
+
+        // Kim loại
+        if (lowerLabel.matches(".*(kim loai|kim loại|metal|can|lon|aluminum|steel|sat|nhom|hop kim loai|vo lon).*")) {
+            return trashBinRepository.findByCode("kim_loai").orElse(null);
+        }
+
+        // Thủy tinh
+        if (lowerLabel.matches(".*(thuy tinh|thủy tinh|glass|chai thuy tinh|chai thủy tinh|ly|coc|lo).*")) {
+            return trashBinRepository.findByCode("thuy_tinh").orElse(null);
+        }
+
+        return null;
+    }
     private AiResponseDetailsDTO.DetectionDTO toDTO_NoLlm(
             Detection det,
             TrashItem item,
@@ -1147,6 +1231,26 @@ public class AiPipelineServiceImpl implements AiPipelineService {
         TrashItemKnowledge finalKnowledge = kn;
         if (finalItem != null) {
             finalKnowledge = knowledgeRepo.findActiveByTrashItemId(finalItem.getId()).orElse(kn);
+        }
+        String binCode = null;
+        String binName = null;
+        String binColorCode = null;
+
+        if (finalItem != null && finalItem.getTrashBin() != null) {
+            TrashBin bin = finalItem.getTrashBin();
+            binCode = bin.getCode();
+            binName = bin.getNameTrash();
+            binColorCode = bin.getColorCode();
+        }
+        if (binCode == null && finalItem != null && finalItem.getLabel() != null) {
+            TrashBin foundBin = determineTrashBinFromLabel(finalItem.getLabel());
+            if (foundBin != null) {
+                finalItem.setTrashBin(foundBin);
+                trashItemRepo.save(finalItem);
+                binCode = foundBin.getCode();
+                binName = foundBin.getNameTrash();
+                binColorCode = foundBin.getColorCode();
+            }
         }
 
         String resolvedLabel = det.getLabel();
@@ -1191,6 +1295,9 @@ public class AiPipelineServiceImpl implements AiPipelineService {
                 .material(finalKnowledge != null ? finalKnowledge.getMaterial() : null)
                 .note(finalKnowledge != null ? finalKnowledge.getNote() : null)
                 .action(finalKnowledge != null ? finalKnowledge.getAction() : null)
+                .binCode(binCode)
+                .binName(binName)
+                .binColorCode(binColorCode)
                 .detail((finalKnowledge == null && stepDTOs == null) ? null : AiResponseDetailsDTO.DetailDTO.builder()
                         .impact(finalKnowledge != null ? finalKnowledge.getImpact() : null)
                         .toxicity(finalKnowledge != null ? finalKnowledge.getToxicity() : null)
