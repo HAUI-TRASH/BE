@@ -2,7 +2,7 @@
 -- INSERT IGNORE: Chỉ insert nếu chưa tồn tại
 -- ============================================
 -- chưa có ảnh nên lấy placeholder ở  lorem piscum, text dùng markdown để fe sửa
-INSERT IGNORE INTO stories (id, title, slug, content, thumbnail_url, category, view_count, is_published, published_at, created_at, updated_at) VALUES
+INSERT IGNORE INTO stories(id, title, slug, content, thumbnail_url, category, view_count, is_published, published_at, created_at, updated_at) VALUES
 (1, 'Hành trình tái sinh của chai nhựa', 'hanh-trinh-tai-sinh-cua-chai-nhua',
 '## Một chai nhựa sống bao lâu?
 
