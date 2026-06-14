@@ -53,6 +53,9 @@ public class AiResponseDetailsDTO {
 
         private DetailDTO detail;
         private Integer quantity;
+        private String binCode;
+        private String binName;
+        private String binColorCode;
     }
 
     @Data

@@ -16,6 +16,6 @@ public interface TrashItemRepository extends JpaRepository<TrashItem, Integer> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from TrashItem t where t.id = :id")
     Optional<TrashItem> findByIdForUpdate(@Param("id") Integer id);
-    Optional<TrashItem> findByLabelDisplayIgnoreCase(String labelDisplay);
+    List<TrashItem> findByLabelDisplayIgnoreCase(String labelDisplay);
 }
 

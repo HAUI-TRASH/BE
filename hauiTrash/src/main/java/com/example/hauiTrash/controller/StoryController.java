@@ -45,33 +45,5 @@ public class StoryController {
                 .data(story)
                 .build());
     }
-    @PostMapping("/admin")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<StoryDetailDTO>> createStory(@Valid @RequestBody StoryRequest request) {
-        StoryDetailDTO story = storyService.createStory(request);
-        return ResponseEntity.ok(ApiResponse.<StoryDetailDTO>builder()
-                .message("Tạo câu chuyện thành công")
-                .data(story)
-                .build());
-    }
-    @PutMapping("/admin/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<StoryDetailDTO>> updateStory(
-            @PathVariable Long id,
-            @Valid @RequestBody StoryRequest request
-    ) {
-        StoryDetailDTO story = storyService.updateStory(id, request);
-        return ResponseEntity.ok(ApiResponse.<StoryDetailDTO>builder()
-                .message("Cập nhật câu chuyện thành công")
-                .data(story)
-                .build());
-    }
-    @DeleteMapping("/admin/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<Void>> deleteStory(@PathVariable Long id) {
-        storyService.deleteStory(id);
-        return ResponseEntity.ok(ApiResponse.<Void>builder()
-                .message("Xóa câu chuyện thành công")
-                .build());
-    }
+
 }

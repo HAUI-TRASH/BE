@@ -256,3 +256,77 @@ Hãy tưởng tượng: Một chiếc túi nilon được sinh ra trong **1 giâ
 
 > *Mỗi chiếc túi nilon không được sử dụng là một năm ánh sáng cho hành tinh!*',
 'https://picsum.photos/id/200/400/200', 'EDUCATION', 0, true, NOW(), NOW(), NOW());
+INSERT IGNORE INTO sample_images (material, image_url) VALUES
+('plastic', '/images/samples/anh-chai-nhua.png'),
+('paper', '/images/samples/chai-giay.png'),
+('glass', '/images/samples/anh-chai-thuy-tinh.png'),
+('metal', '/images/samples/anh-chai-kim-loai.png');
+
+-- Insert 4 loại thùng rác
+INSERT IGNORE INTO trash_bin (name_trash, code, color_name, color_code, description, sort_order, is_active, created_at, updated_at) VALUES
+                                                                                                                                 ('Nhựa', 'nhua', 'Xanh lá', '#22C55E', 'Chai nhựa, chai nước ngọt, dầu gội, khẩu trang', 1, true, NOW(), NOW()),
+                                                                                                                                 ('Giấy', 'giay', 'Xanh dương', '#3B82F6', 'Hộp giấy, hộp sữa, carton, báo', 2, true, NOW(), NOW()),
+                                                                                                                                 ('Kim loại', 'kim_loai', 'Vàng', '#EAB308', 'Lon nước ngọt, lon bia, hộp kim loại', 3, true, NOW(), NOW()),
+                                                                                                                                 ('Thủy tinh', 'thuy_tinh', 'Xanh ngọc', '#14B8A6', 'Chai thủy tinh, chai rượu, lọ mỹ phẩm', 4, true, NOW(), NOW());
+-- ============================================
+-- INSERT dữ liệu cho trash_items (tiếng Việt)
+-- ============================================
+INSERT IGNORE INTO trash_items (label, label_display, status, trash_bin_id, created_at, updated_at) VALUES
+
+-- Nhựa (trash_bin_id = 1)
+('chai_nhua', 'Chai nhựa', 'ACTIVE', 1, NOW(), NOW()),
+('chai_nhua_pet', 'Chai nhựa', 'ACTIVE', 1, NOW(), NOW()),
+('chai_nuoc_suoi', 'Chai nước suối', 'ACTIVE', 1, NOW(), NOW()),
+('chai_nuoc_ngot', 'Chai nước ngọt', 'ACTIVE', 1, NOW(), NOW()),
+('chai_dau_goi', 'Chai dầu gội', 'ACTIVE', 1, NOW(), NOW()),
+('khau_trang', 'Khẩu trang', 'NEED_REVIEW', NULL, NOW(), NOW()),
+('ly_nhua', 'Ly nhựa', 'ACTIVE', 1, NOW(), NOW()),
+('tui_nilon', 'Túi nilon', 'ACTIVE', 1, NOW(), NOW()),
+('ong_hut_nhua', 'Ống hút nhựa', 'ACTIVE', 1, NOW(), NOW()),
+('hop_sua_chua', 'Hộp sữa chua', 'ACTIVE', 1, NOW(), NOW()),
+('hop_nhua', 'Hộp nhựa', 'ACTIVE', 1, NOW(), NOW()),
+('chai_nhua_hdpe', 'Chai nhựa HDPE', 'ACTIVE', 1, NOW(), NOW()),
+
+-- Giấy (trash_bin_id = 2)
+('giay', 'Giấy', 'ACTIVE', 2, NOW(), NOW()),
+('hop_carton', 'Hộp carton', 'ACTIVE', 2, NOW(), NOW()),
+('bia_carton', 'Bìa carton', 'ACTIVE', 2, NOW(), NOW()),
+('hop_sua', 'Hộp sữa giấy', 'ACTIVE', 2, NOW(), NOW()),
+('bao', 'Báo', 'ACTIVE', 2, NOW(), NOW()),
+('tap_chi', 'Tạp chí', 'ACTIVE', 2, NOW(), NOW()),
+('hop_nuoc_ep', 'Hộp nước ép', 'ACTIVE', 2, NOW(), NOW()),
+('khay_trung', 'Khay trứng', 'ACTIVE', 2, NOW(), NOW()),
+('ly_ca_phe_giay', 'Ly cà phê giấy', 'NEED_REVIEW', NULL, NOW(), NOW()),
+('giay_than', 'Giấy thân chai', 'ACTIVE', 2, NOW(), NOW()),
+('hop_giay', 'Hộp giấy', 'ACTIVE', 2, NOW(), NOW()),
+
+-- Kim loại (trash_bin_id = 3)
+('kim_loai', 'Kim loại', 'ACTIVE', 3, NOW(), NOW()),
+('lon_nuoc_ngot', 'Lon nước ngọt', 'ACTIVE', 3, NOW(), NOW()),
+('lon_bia', 'Lon bia', 'ACTIVE', 3, NOW(), NOW()),
+('hop_kim_loai', 'Hộp kim loại', 'ACTIVE', 3, NOW(), NOW()),
+('lon_nhom', 'Lon nhôm', 'ACTIVE', 3, NOW(), NOW()),
+('lon_thep', 'Lon thép', 'ACTIVE', 3, NOW(), NOW()),
+('lon_thiec', 'Lon thiếc', 'ACTIVE', 3, NOW(), NOW()),
+('giay_bac', 'Giấy bạc', 'NEED_REVIEW', NULL, NOW(), NOW()),
+('nap_chai_kim_loai', 'Nắp chai kim loại', 'ACTIVE', 3, NOW(), NOW()),
+('binh_kim_loai', 'Bình kim loại', 'ACTIVE', 3, NOW(), NOW()),
+
+-- Thủy tinh (trash_bin_id = 4)
+('thuy_tinh', 'Thủy tinh', 'ACTIVE', 4, NOW(), NOW()),
+('chai_thuy_tinh', 'Chai thủy tinh', 'ACTIVE', 4, NOW(), NOW()),
+('chai_ruou', 'Chai rượu', 'ACTIVE', 4, NOW(), NOW()),
+('chai_bia', 'Chai bia', 'ACTIVE', 4, NOW(), NOW()),
+('lo_thuy_tinh', 'Lọ thủy tinh', 'ACTIVE', 4, NOW(), NOW()),
+('lo_my_pham', 'Lọ mỹ phẩm', 'ACTIVE', 4, NOW(), NOW()),
+('ly_thuy_tinh', 'Ly thủy tinh', 'ACTIVE', 4, NOW(), NOW()),
+('manh_thuy_tinh', 'Mảnh thủy tinh vỡ', 'NEED_REVIEW', NULL, NOW(), NOW()),
+
+-- Rác khác
+('rac_dien_tu', 'Rác điện tử', 'NEED_REVIEW', NULL, NOW(), NOW()),
+('pin', 'Pin', 'NEED_REVIEW', NULL, NOW(), NOW()),
+('bong_den', 'Bóng đèn', 'NEED_REVIEW', NULL, NOW(), NOW()),
+('xop', 'Xốp', 'NEED_REVIEW', NULL, NOW(), NOW()),
+('rac_thuc_pham', 'Rác thực phẩm', 'NEED_REVIEW', NULL, NOW(), NOW()),
+('cao_su', 'Cao su', 'NEED_REVIEW', NULL, NOW(), NOW()),
+('vai_vun', 'Vải vụn', 'NEED_REVIEW', NULL, NOW(), NOW());
