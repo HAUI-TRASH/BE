@@ -10,6 +10,7 @@ import com.example.hauiTrash.iot.dto.IotDetailResponseDTO;
 import com.example.hauiTrash.iot.dto.IotPredictRequestDTO;
 import com.example.hauiTrash.iot.dto.IotPredictResponseDTO;
 import com.example.hauiTrash.iot.dto.IotRealtimeResponseDTO;
+import com.example.hauiTrash.iot.service.ArduinoService;
 import com.example.hauiTrash.iot.service.IotService;
 import com.example.hauiTrash.service.AiPipelineService;
 import com.example.hauiTrash.service.AiRequestService;
@@ -31,6 +32,7 @@ public class IotServiceImpl implements IotService {
     private final AiRequestService aiRequestService;
     private final AiYoloService aiYoloService;
     private final AiPipelineService aiPipelineService;
+    private final ArduinoService arduinoService;
 
     @Override
     public IotAiRequestResponseDTO createAiRequest(MultipartFile file) {
@@ -61,6 +63,13 @@ public class IotServiceImpl implements IotService {
         aiReq.setIou(req.getIou());
 
         YoloPredictResponseDTO classified = aiYoloService.predictAndSave(aiReq);
+
+        // Gửi lệnh mở nắp tương ứng sang Arduino
+        if (classified.getDetections() != null && !classified.getDetections().isEmpty()) {
+            String label = classified.getDetections().get(0).getLabel();
+            arduinoService.sendMaterialCommand(label);
+        }
+
         return mapToIotPredictResponse(classified);
     }
 
